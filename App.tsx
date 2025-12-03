@@ -1,0 +1,856 @@
+
+import React, { useState, useMemo, useEffect } from 'react';
+import { ViewState, InvoiceData, Company, AppSettings } from './types';
+import InvoiceForm from './components/InvoiceForm';
+import InvoicePreview from './components/InvoicePreview';
+import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow } from './services/dataService';
+
+const App: React.FC = () => {
+  // --- State ---
+  
+  // "Backend" Database with LocalStorage persistence via Data Service
+  const [companies, setCompanies] = useState<Company[]>(() => getStoredCompanies());
+
+  // Save to local storage whenever companies change
+  useEffect(() => {
+    saveStoredCompanies(companies);
+  }, [companies]);
+
+  // Session
+  const [activeCompanyId, setActiveCompanyId] = useState<string | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  
+  // Navigation
+  const [view, setView] = useState<ViewState>('LOGIN');
+
+  // Login Form
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  // Dashboard State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dateRange, setDateRange] = useState<'TODAY' | 'WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM'>('TODAY');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [currentInvoice, setCurrentInvoice] = useState<InvoiceData | null>(null);
+
+  // Create/Edit Company Form State
+  const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
+  const [newCompany, setNewCompany] = useState<Omit<Partial<Company>, 'settings'> & { settings: Partial<AppSettings> }>({
+    expiryDate: getOneYearFromNow(),
+    settings: {
+        shipmentTypes: [],
+        isVatEnabled: false // Disabled by default
+    }
+  });
+  
+  // Temp state for adding shipment types
+  const [tempShipmentName, setTempShipmentName] = useState('');
+  const [tempShipmentValue, setTempShipmentValue] = useState('');
+
+  // --- Helpers ---
+
+  const activeCompany = useMemo(() => 
+    companies.find(c => c.id === activeCompanyId), 
+  [companies, activeCompanyId]);
+
+  const activeInvoices = activeCompany?.invoices || [];
+
+  // --- Handlers ---
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+
+    // 1. Check Super Admin
+    if (username === 'qovoz' && password === '123') {
+      setIsSuperAdmin(true);
+      setActiveCompanyId(null);
+      setView('SETTINGS'); // Admin goes straight to company creation
+      return;
+    }
+
+    // 2. Check Companies
+    const company = companies.find(c => c.username === username && c.password === password);
+    if (company) {
+      // Check Expiration
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const expDate = new Date(company.expiryDate);
+      
+      if (today > expDate) {
+        setLoginError('Account has expired. Please contact support.');
+        return;
+      }
+
+      setActiveCompanyId(company.id);
+      setIsSuperAdmin(false);
+      setView('DASHBOARD');
+    } else {
+      setLoginError('Invalid Username/Password');
+    }
+  };
+
+  const handleLogout = () => {
+    setActiveCompanyId(null);
+    setIsSuperAdmin(false);
+    setView('LOGIN');
+    setUsername('');
+    setPassword('');
+    setLoginError('');
+  };
+  
+  const addShipmentType = () => {
+      if(!tempShipmentName || !tempShipmentValue) return;
+      
+      const newType = { name: tempShipmentName, value: parseFloat(tempShipmentValue) };
+      const currentTypes = newCompany.settings?.shipmentTypes || [];
+      
+      setNewCompany({
+          ...newCompany,
+          settings: {
+              ...newCompany.settings,
+              shipmentTypes: [...currentTypes, newType]
+          }
+      });
+      setTempShipmentName('');
+      setTempShipmentValue('');
+  };
+
+  const removeShipmentType = (index: number) => {
+      const currentTypes = newCompany.settings?.shipmentTypes || [];
+      const updated = currentTypes.filter((_, i) => i !== index);
+      setNewCompany({
+          ...newCompany,
+          settings: {
+              ...newCompany.settings,
+              shipmentTypes: updated
+          }
+      });
+  };
+
+  const handleSaveCompany = () => {
+    if (!newCompany.username || !newCompany.password || !newCompany.settings?.companyName) {
+      alert("Please fill in required fields (Company Name, Username, Password)");
+      return;
+    }
+
+    if (editingCompanyId) {
+      // Update Existing
+      setCompanies(prev => prev.map(c => {
+        if (c.id === editingCompanyId) {
+          return {
+            ...c,
+            username: newCompany.username!,
+            password: newCompany.password!,
+            expiryDate: newCompany.expiryDate || c.expiryDate,
+            settings: {
+              ...c.settings,
+              ...newCompany.settings,
+              companyName: newCompany.settings?.companyName || c.settings.companyName,
+              companyArabicName: newCompany.settings?.companyArabicName || c.settings.companyArabicName,
+              addressLine1: newCompany.settings?.addressLine1 || c.settings.addressLine1,
+              addressLine2: newCompany.settings?.addressLine2 || c.settings.addressLine2,
+              addressLine1Arabic: newCompany.settings?.addressLine1Arabic || c.settings.addressLine1Arabic,
+              addressLine2Arabic: newCompany.settings?.addressLine2Arabic || c.settings.addressLine2Arabic,
+              phone1: newCompany.settings?.phone1 || c.settings.phone1,
+              phone2: newCompany.settings?.phone2 || c.settings.phone2,
+              vatnoc: newCompany.settings?.vatnoc || c.settings.vatnoc,
+              isVatEnabled: newCompany.settings?.isVatEnabled ?? c.settings.isVatEnabled,
+              logoUrl: newCompany.settings?.logoUrl || c.settings.logoUrl,
+              shipmentTypes: newCompany.settings?.shipmentTypes || c.settings.shipmentTypes
+            }
+          };
+        }
+        return c;
+      }));
+      alert("Company Updated Successfully!");
+    } else {
+      // Create New
+      const companyToAdd: Company = {
+        id: Date.now().toString(),
+        username: newCompany.username!,
+        password: newCompany.password!,
+        expiryDate: newCompany.expiryDate || getOneYearFromNow(),
+        settings: {
+          companyName: newCompany.settings.companyName || '',
+          companyArabicName: newCompany.settings.companyArabicName || '',
+          addressLine1: newCompany.settings.addressLine1 || '',
+          addressLine2: newCompany.settings.addressLine2 || '',
+          addressLine1Arabic: newCompany.settings.addressLine1Arabic || '',
+          addressLine2Arabic: newCompany.settings.addressLine2Arabic || '',
+          phone1: newCompany.settings.phone1 || '',
+          phone2: newCompany.settings.phone2 || '',
+          vatnoc: newCompany.settings.vatnoc || '',
+          isVatEnabled: newCompany.settings.isVatEnabled || false,
+          logoUrl: newCompany.settings.logoUrl || '',
+          shipmentTypes: newCompany.settings.shipmentTypes || []
+        },
+        invoices: []
+      };
+      setCompanies([...companies, companyToAdd]);
+      alert("Company Created Successfully!");
+    }
+    
+    // Reset Form
+    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false } });
+    setEditingCompanyId(null);
+    setTempShipmentName('');
+    setTempShipmentValue('');
+  };
+
+  const handleEditCompany = (company: Company) => {
+    setEditingCompanyId(company.id);
+    setNewCompany({
+      username: company.username,
+      password: company.password,
+      expiryDate: company.expiryDate,
+      settings: { ...company.settings }
+    });
+    // Scroll to top to see form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCompanyId(null);
+    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false } });
+    setTempShipmentName('');
+    setTempShipmentValue('');
+  };
+
+  const handleCreateInvoice = () => {
+    if (!activeCompany) return;
+    
+    const lastInvoiceNo = activeInvoices.length > 0 ? activeInvoices[0].invoiceNo : '1000';
+    const nextNo = (parseInt(lastInvoiceNo) + 1).toString();
+
+    const template: InvoiceData = {
+      invoiceNo: nextNo,
+      date: formatDate(new Date()),
+      shipmentType: activeCompany.settings.shipmentTypes[0]?.name || '',
+      status: 'Received', // Default status
+      shipper: { name: '', idNo: '', tel: '', vatnos: '', pcs: 0, weight: 0 }, 
+      consignee: { name: '', address: '', post: '', pin: '', country: '', district: '', state: '', tel: '', tel2: '' },
+      cargoItems: [],
+      financials: { total: 0, billCharges: 0, vat: 0, vatAmount: 0, netTotal: 0 }
+    };
+
+    setCurrentInvoice(template);
+    setView('CREATE_INVOICE');
+  };
+
+  const handleEditInvoice = (invoice: InvoiceData) => {
+    setCurrentInvoice(invoice);
+    setView('CREATE_INVOICE');
+  };
+
+  const handleInvoiceSubmit = (data: InvoiceData) => {
+    if (!activeCompanyId) return;
+
+    setCompanies(prev => prev.map(c => {
+      if (c.id === activeCompanyId) {
+        // Check if invoice exists to update
+        const existingIndex = c.invoices.findIndex(inv => inv.invoiceNo === data.invoiceNo);
+        if (existingIndex >= 0) {
+            const updatedInvoices = [...c.invoices];
+            updatedInvoices[existingIndex] = data;
+            return { ...c, invoices: updatedInvoices };
+        } else {
+            return { ...c, invoices: [data, ...c.invoices] };
+        }
+      }
+      return c;
+    }));
+    
+    setCurrentInvoice(data);
+    setView('PREVIEW_INVOICE');
+  };
+
+  // --- Filtering & Stats ---
+
+  const parseDateStr = (dateStr: string): Date => {
+    const parts = dateStr.split('/');
+    if (parts.length === 3) {
+      return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+    }
+    return new Date();
+  };
+
+  const filteredInvoices = useMemo(() => {
+    let filtered = activeInvoices;
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(inv => 
+        inv.invoiceNo.toLowerCase().includes(q) ||
+        inv.consignee.name.toLowerCase().includes(q) ||
+        inv.shipper.name.toLowerCase().includes(q) ||
+        inv.consignee.tel.includes(q) ||
+        inv.shipper.tel.includes(q) ||
+        inv.date.includes(q)
+      );
+    }
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    
+    filtered = filtered.filter(inv => {
+      const invDate = parseDateStr(inv.date);
+      invDate.setHours(0,0,0,0);
+
+      if (dateRange === 'TODAY') return invDate.getTime() === today.getTime();
+      if (dateRange === 'WEEK') {
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay()); 
+        return invDate >= startOfWeek;
+      }
+      if (dateRange === 'MONTH') return invDate.getMonth() === today.getMonth() && invDate.getFullYear() === today.getFullYear();
+      if (dateRange === 'LAST_MONTH') {
+        const lastMonth = new Date(today);
+        lastMonth.setMonth(lastMonth.getMonth() - 1);
+        return invDate.getMonth() === lastMonth.getMonth() && invDate.getFullYear() === lastMonth.getFullYear();
+      }
+      if (dateRange === 'CUSTOM') {
+        if (!customStart && !customEnd) return true;
+        const start = customStart ? new Date(customStart) : new Date(0);
+        const end = customEnd ? new Date(customEnd) : new Date(9999, 11, 31);
+        start.setHours(0,0,0,0);
+        end.setHours(23,59,59,999);
+        return invDate >= start && invDate <= end;
+      }
+      return true;
+    });
+
+    return filtered;
+  }, [activeInvoices, searchQuery, dateRange, customStart, customEnd]);
+
+  const stats = useMemo(() => {
+    const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
+    const totalShipments = filteredInvoices.length;
+    return { totalRevenue, totalShipments };
+  }, [filteredInvoices]);
+
+  const getRangeLabel = () => {
+    switch(dateRange) {
+      case 'TODAY': return 'Today';
+      case 'WEEK': return 'This Week';
+      case 'MONTH': return 'This Month';
+      case 'LAST_MONTH': return 'Last Month';
+      case 'CUSTOM': return 'Custom Range';
+      default: return '';
+    }
+  };
+
+
+  // --- VIEWS ---
+
+  if (view === 'LOGIN') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="bg-white p-8 rounded shadow-md w-96">
+          <div className="text-center mb-5">
+            <h1 className="text-3xl font-bold text-blue-700 mb-[10px]">QOVOZ</h1>
+            <p className="text-sm text-gray-500">Logistics Management System</p>
+          </div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Username</label>
+              <input 
+                type="text" 
+                className="mt-1 block w-full border border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Password</label>
+              <input 
+                type="password" 
+                className="mt-1 block w-full border border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            {loginError && <p className="text-red-500 text-xs">{loginError}</p>}
+            <button type="submit" className="w-full bg-blue-800 text-white p-2 rounded hover:bg-blue-600 transition">
+              Login
+            </button>
+          </form>
+          <div className="mt-4 text-xs text-center text-gray-400">
+            Secure Login by Qovoz
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Super Admin View to Create Companies
+  if (view === 'SETTINGS' && isSuperAdmin) {
+    return (
+       <div className="min-h-screen bg-gray-50">
+        <nav className="bg-blue-900 text-white p-4 shadow-lg sticky top-0 z-10">
+          <div className="max-w-4xl mx-auto flex justify-between items-center">
+            <h1 className="text-xl font-bold">Qovoz Admin Panel</h1>
+            <button onClick={handleLogout} className="bg-red-600 px-3 py-1 rounded hover:bg-red-500 text-sm">
+              Logout
+            </button>
+          </div>
+        </nav>
+
+        <main className="max-w-4xl mx-auto p-6">
+          <div className="bg-white rounded shadow-lg overflow-hidden">
+            <div className="p-4 bg-gray-100 border-b flex justify-between items-center">
+               <div>
+                   <h2 className="text-lg font-bold text-gray-800">{editingCompanyId ? 'Edit Company' : 'Create New Company'}</h2>
+                   <p className="text-xs text-gray-500">{editingCompanyId ? 'Update details for the selected company.' : 'Fill in the details to create a new isolated company account.'}</p>
+               </div>
+               {editingCompanyId && (
+                   <button onClick={handleCancelEdit} className="text-sm text-red-600 underline">Cancel Edit</button>
+               )}
+            </div>
+            
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Branding Section */}
+                <div className="col-span-1 md:col-span-2">
+                    <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">Company Details</h3>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Company Name (English) *</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        value={newCompany.settings?.companyName || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, companyName: e.target.value}})}
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Company Name (Arabic)</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-right font-arabic"
+                        value={newCompany.settings?.companyArabicName || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, companyArabicName: e.target.value}})}
+                    />
+                </div>
+                
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 1 (English)</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        value={newCompany.settings?.addressLine1 || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1: e.target.value}})}
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 1 (Arabic)</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-right"
+                        value={newCompany.settings?.addressLine1Arabic || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1Arabic: e.target.value}})}
+                    />
+                </div>
+                
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 2 (English)</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        value={newCompany.settings?.addressLine2 || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine2: e.target.value}})}
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 2 (Arabic)</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-right"
+                        value={newCompany.settings?.addressLine2Arabic || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine2Arabic: e.target.value}})}
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Primary Mobile (English)</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        value={newCompany.settings?.phone1 || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, phone1: e.target.value}})}
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Secondary Mobile</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        value={newCompany.settings?.phone2 || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, phone2: e.target.value}})}
+                    />
+                </div>
+                
+                {/* VAT Section */}
+                <div className="bg-gray-200 p-2 rounded border border-gray-300 col-span-1 md:col-span-2 flex flex-col gap-2">
+                     <div className="flex items-center gap-2">
+                         <input 
+                             type="checkbox" 
+                             id="enableVat"
+                             checked={newCompany.settings?.isVatEnabled || false}
+                             onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, isVatEnabled: e.target.checked}})}
+                             className="h-4 w-4 text-blue-600 rounded"
+                         />
+                         <label htmlFor="enableVat" className="text-sm font-medium text-gray-700 select-none cursor-pointer">Enable VAT Calculation</label>
+                     </div>
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${newCompany.settings?.isVatEnabled ? 'text-gray-700' : 'text-gray-400'}`}>VAT Number</label>
+                        <input 
+                            type="text" 
+                            className={`w-full border-gray-300 rounded p-2 text-black placeholder-black ${newCompany.settings?.isVatEnabled ? 'bg-gray-300' : 'bg-gray-200 text-gray-400'}`}
+                            value={newCompany.settings?.vatnoc || ''}
+                            onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, vatnoc: e.target.value}})}
+                            disabled={!newCompany.settings?.isVatEnabled}
+                            placeholder={newCompany.settings?.isVatEnabled ? "Enter VAT Number" : "Enable checkbox to enter VAT"}
+                        />
+                    </div>
+                </div>
+
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Logo URL (Optional)</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        placeholder="https://..."
+                        value={newCompany.settings?.logoUrl || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, logoUrl: e.target.value}})}
+                    />
+                </div>
+
+                {/* Shipment Types Section */}
+                <div className="col-span-1 md:col-span-2 mt-2">
+                    <h3 className="font-bold text-blue-900 border-b pb-2 mb-2">Shipment Types</h3>
+                    <div className="flex gap-2 mb-3 bg-gray-200 p-2 rounded items-end">
+                        <div className="flex-1">
+                            <label className="block text-sm text-gray-700">Name</label>
+                            <input 
+                                placeholder="e.g. IND AIR" 
+                                className="w-full border-gray-300 p-1 rounded text-sm bg-gray-300 text-black placeholder-black"
+                                value={tempShipmentName}
+                                onChange={e => setTempShipmentName(e.target.value)}
+                            />
+                        </div>
+                        <div className="w-24">
+                            <label className="block text-sm text-gray-700">Value</label>
+                            <input 
+                                placeholder="e.g. 10" 
+                                type="number"
+                                className="w-full border-gray-300 p-1 rounded text-sm bg-gray-300 text-black placeholder-black"
+                                value={tempShipmentValue}
+                                onChange={e => setTempShipmentValue(e.target.value)}
+                            />
+                        </div>
+                        <button onClick={addShipmentType} className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-500 h-8 text-sm">Add</button>
+                    </div>
+                    
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {(newCompany.settings?.shipmentTypes || []).length === 0 && (
+                            <p className="text-gray-500 text-xs italic">No shipment types added.</p>
+                        )}
+                        {(newCompany.settings?.shipmentTypes || []).map((type, idx) => (
+                            <div key={idx} className="flex justify-between items-center bg-gray-100 p-2 rounded border">
+                                <span className="text-gray-700 font-normal">{type.name} <span className="text-gray-700 font-normal">({type.value})</span></span>
+                                <button onClick={() => removeShipmentType(idx)} className="text-red-500 font-bold hover:bg-red-100 rounded px-2">&times;</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Account Section */}
+                <div className="col-span-1 md:col-span-2 mt-4">
+                    <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">Account Credentials</h3>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Admin Username *</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        value={newCompany.username || ''}
+                        onChange={(e) => setNewCompany({...newCompany, username: e.target.value})}
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Admin Password *</label>
+                    <input 
+                        type="text" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        value={newCompany.password || ''}
+                        onChange={(e) => setNewCompany({...newCompany, password: e.target.value})}
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Expiry Date</label>
+                    <input 
+                        type="date" 
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        value={newCompany.expiryDate || ''}
+                        onChange={(e) => setNewCompany({...newCompany, expiryDate: e.target.value})}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Default is 1 year from today.</p>
+                </div>
+
+                <div className="col-span-1 md:col-span-2 mt-6">
+                    <button 
+                        onClick={handleSaveCompany}
+                        className={`w-full text-white font-bold py-3 rounded shadow transition ${editingCompanyId ? 'bg-green-700 hover:bg-green-600' : 'bg-blue-800 hover:bg-blue-600'}`}
+                    >
+                        {editingCompanyId ? 'Update Company' : 'Create Company'}
+                    </button>
+                </div>
+
+            </div>
+            
+            {/* List of existing companies for reference */}
+            <div className="bg-gray-50 p-6 border-t">
+                 <h3 className="font-bold text-gray-600 mb-2">Existing Companies ({companies.length})</h3>
+                 <div className="space-y-2">
+                     {companies.map(c => (
+                         <div key={c.id} className="bg-white border p-3 rounded flex justify-between items-center text-sm shadow-sm">
+                             <div>
+                                 <span className="font-bold text-gray-800 block">{c.settings.companyName}</span>
+                                 <div className="text-gray-500 text-xs">
+                                     User: {c.username} | Exp: {c.expiryDate}
+                                 </div>
+                             </div>
+                             <div className="flex gap-2">
+                                <button 
+                                    onClick={() => handleEditCompany(c)}
+                                    className="bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300 transition"
+                                >
+                                    Edit
+                                </button>
+                             </div>
+                         </div>
+                     ))}
+                 </div>
+            </div>
+          </div>
+        </main>
+       </div>
+    );
+  }
+
+  // Regular Company View
+  if (view === 'DASHBOARD' && activeCompany) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <nav className="bg-blue-900 text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-10">
+          <h1 className="text-xl font-bold">{activeCompany.settings.companyName}</h1>
+          <div className="flex items-center gap-4">
+            <span className="hidden md:inline text-sm opacity-80">Logged in as {activeCompany.username}</span>
+            <button onClick={handleLogout} className="bg-red-600 px-3 py-1 rounded hover:bg-red-500 text-sm">Logout</button>
+          </div>
+        </nav>
+
+        <main className="max-w-7xl mx-auto p-4 md:p-6">
+          {/* Header & Actions */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+            <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
+            <button 
+              onClick={handleCreateInvoice}
+              className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 w-full md:w-auto justify-center"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+              </svg>
+              New Invoice
+            </button>
+          </div>
+
+          {/* Filters Bar */}
+          <div className="bg-white p-4 rounded shadow mb-6 flex flex-col md:flex-row gap-4 items-center">
+             {/* Search */}
+             <div className="relative w-full md:w-1/3">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                  <svg className="h-5 w-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </span>
+                <input 
+                  type="text"
+                  placeholder="Search invoice #, name, mobile..."
+                  className="w-full border border-gray-300 rounded pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-300 text-black placeholder-black"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+             </div>
+
+             {/* Date Range Selector */}
+             <div className="flex gap-2 items-center w-full md:w-auto">
+                <select 
+                  className="border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={dateRange}
+                  onChange={(e) => setDateRange(e.target.value as any)}
+                >
+                  <option value="TODAY">Today</option>
+                  <option value="WEEK">This Week</option>
+                  <option value="MONTH">This Month</option>
+                  <option value="LAST_MONTH">Last Month</option>
+                  <option value="CUSTOM">Custom Date</option>
+                </select>
+
+                {dateRange === 'CUSTOM' && (
+                  <div className="flex gap-2 items-center">
+                    <input 
+                      type="date" 
+                      className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
+                      value={customStart}
+                      onChange={(e) => setCustomStart(e.target.value)}
+                    />
+                    <span className="text-gray-500">-</span>
+                    <input 
+                      type="date" 
+                      className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
+                      value={customEnd}
+                      onChange={(e) => setCustomEnd(e.target.value)}
+                    />
+                  </div>
+                )}
+             </div>
+          </div>
+
+          {/* Stats Cards - Dynamic based on filters */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="bg-white p-6 rounded shadow-sm border-l-4 border-blue-500">
+              <div className="text-gray-500 text-sm">Shipments ({getRangeLabel()})</div>
+              <div className="text-3xl font-bold text-gray-800">{stats.totalShipments}</div>
+            </div>
+            <div className="bg-white p-6 rounded shadow-sm border-l-4 border-green-500">
+              <div className="text-gray-500 text-sm">Revenue ({getRangeLabel()})</div>
+              <div className="text-3xl font-bold text-gray-800">SAR {stats.totalRevenue.toFixed(2)}</div>
+            </div>
+            <div className="bg-white p-6 rounded shadow-sm border-l-4 border-yellow-500">
+              <div className="text-gray-500 text-sm">Pending Clearance</div>
+              <div className="text-3xl font-bold text-gray-800">3</div>
+            </div>
+          </div>
+
+          {/* Filtered Table */}
+          <div className="bg-white rounded shadow overflow-hidden">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-bold text-gray-700">Invoices List</h3>
+              <span className="text-xs text-gray-500">Showing {filteredInvoices.length} results</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-600 text-sm">
+                    <th className="p-4 border-b">Invoice #</th>
+                    <th className="p-4 border-b">Date</th>
+                    <th className="p-4 border-b">Shipper Name</th>
+                    <th className="p-4 border-b">Mobile</th>
+                    <th className="p-4 border-b">Amount</th>
+                    <th className="p-4 border-b">Status</th>
+                    <th className="p-4 border-b">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm text-gray-700">
+                  {filteredInvoices.length > 0 ? (
+                    filteredInvoices.map((inv, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="p-4 border-b font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
+                        <td className="p-4 border-b">{inv.date}</td>
+                        <td className="p-4 border-b font-medium">{inv.shipper.name}</td>
+                        <td className="p-4 border-b text-gray-500">{inv.shipper.tel}</td>
+                        <td className="p-4 border-b font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                        <td className="p-4 border-b">
+                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+                                inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
+                                'bg-gray-100 text-gray-800'
+                            }`}>
+                                {inv.status || 'Received'}
+                            </span>
+                        </td>
+                        <td className="p-4 border-b">
+                          <div className="flex items-center gap-2">
+                             <button 
+                                onClick={() => handleEditInvoice(inv)}
+                                className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50 transition"
+                                title="Edit"
+                             >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                  <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                </svg>
+                             </button>
+                             <button 
+                                onClick={() => {
+                                  setCurrentInvoice(inv);
+                                  setView('PREVIEW_INVOICE');
+                                }} 
+                                className="text-gray-600 hover:text-gray-800 p-1 rounded hover:bg-gray-100 transition"
+                                title="Print / View"
+                             >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clipRule="evenodd" />
+                                </svg>
+                             </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-gray-500">
+                        No invoices found matching your criteria.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (view === 'CREATE_INVOICE' && currentInvoice) {
+    return (
+      <div className="min-h-screen bg-gray-100 pb-12">
+          {/* Changed text-white to text-gray-200 */}
+          <nav className="bg-blue-900 text-gray-200 p-4 shadow-lg mb-4">
+             <div className="max-w-6xl mx-auto flex items-center gap-4">
+                <button onClick={() => setView('DASHBOARD')} className="hover:text-white">&larr; Back</button>
+                <h1 className="text-lg font-bold">Create Invoice</h1>
+             </div>
+          </nav>
+          <InvoiceForm 
+            initialData={currentInvoice}
+            onSubmit={handleInvoiceSubmit}
+            onCancel={() => setView('DASHBOARD')}
+            shipmentTypes={activeCompany?.settings.shipmentTypes || []}
+            history={activeInvoices}
+            isVatEnabled={activeCompany?.settings.isVatEnabled || false} // Pass VAT setting
+          />
+      </div>
+    );
+  }
+
+  if (view === 'PREVIEW_INVOICE' && currentInvoice && activeCompany) {
+    return (
+      <InvoicePreview 
+        data={currentInvoice} 
+        settings={activeCompany.settings}
+        onBack={() => setView('DASHBOARD')} 
+      />
+    );
+  }
+
+  return null;
+};
+
+export default App;

@@ -1,0 +1,8 @@
+{
+  "name": "Qovoz",
+  "description": "A comprehensive logistics management system featuring AI-powered invoice extraction, generation, and tracking.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
