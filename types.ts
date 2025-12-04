@@ -50,7 +50,7 @@ export interface InvoiceData {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS';
 
 export interface ShipmentType {
   name: string;

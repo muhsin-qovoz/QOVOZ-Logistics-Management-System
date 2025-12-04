@@ -1,9 +1,20 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { ViewState, InvoiceData, Company, AppSettings } from './types';
+import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus } from './types';
 import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
 import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow } from './services/dataService';
+
+const SHIPMENT_STATUSES: ShipmentStatus[] = [
+  'Received',
+  'Departed from Branch',
+  'Received at HO',
+  'Loaded into Container',
+  'In transit',
+  'Arrived at destination',
+  'Out for delivery',
+  'Delivered'
+];
 
 const App: React.FC = () => {
   // --- State ---
@@ -34,6 +45,10 @@ const App: React.FC = () => {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [currentInvoice, setCurrentInvoice] = useState<InvoiceData | null>(null);
+
+  // Bulk Status Update State
+  const [selectedInvoiceNos, setSelectedInvoiceNos] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState<ShipmentStatus>('Received');
 
   // Create/Edit Company Form State
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
@@ -266,6 +281,49 @@ const App: React.FC = () => {
     setCurrentInvoice(data);
     setView('PREVIEW_INVOICE');
   };
+  
+  // Bulk Update Handlers
+  const toggleAllInvoices = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.checked) {
+          setSelectedInvoiceNos(filteredInvoices.map(inv => inv.invoiceNo));
+      } else {
+          setSelectedInvoiceNos([]);
+      }
+  };
+
+  const toggleInvoiceSelection = (invoiceNo: string) => {
+      if (selectedInvoiceNos.includes(invoiceNo)) {
+          setSelectedInvoiceNos(prev => prev.filter(id => id !== invoiceNo));
+      } else {
+          setSelectedInvoiceNos(prev => [...prev, invoiceNo]);
+      }
+  };
+
+  const handleBulkStatusUpdate = () => {
+      if (selectedInvoiceNos.length === 0 || !activeCompanyId) return;
+
+      if (!window.confirm(`Are you sure you want to update the status of ${selectedInvoiceNos.length} invoices to "${bulkStatus}"?`)) {
+          return;
+      }
+
+      setCompanies(prev => prev.map(c => {
+          if (c.id === activeCompanyId) {
+              const updatedInvoices = c.invoices.map(inv => {
+                  if (selectedInvoiceNos.includes(inv.invoiceNo)) {
+                      return { ...inv, status: bulkStatus };
+                  }
+                  return inv;
+              });
+              return { ...c, invoices: updatedInvoices };
+          }
+          return c;
+      }));
+
+      alert("Status updated successfully!");
+      setSelectedInvoiceNos([]); // Clear selection
+      // Optionally stay on page or go back
+  };
+
 
   // --- Filtering & Stats ---
 
@@ -643,10 +701,10 @@ const App: React.FC = () => {
     );
   }
 
-  // Regular Company View
-  if (view === 'DASHBOARD' && activeCompany) {
-    return (
-      <div className="min-h-screen bg-gray-50">
+  // Common Header for Dashboard and Modify Status
+  const renderHeader = () => {
+      if(!activeCompany) return null;
+      return (
         <nav className="bg-blue-900 text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-10">
           <h1 className="text-xl font-bold">{activeCompany.settings.companyName}</h1>
           <div className="flex items-center gap-4">
@@ -654,24 +712,12 @@ const App: React.FC = () => {
             <button onClick={handleLogout} className="bg-red-600 px-3 py-1 rounded hover:bg-red-500 text-sm">Logout</button>
           </div>
         </nav>
+      );
+  };
 
-        <main className="max-w-7xl mx-auto p-4 md:p-6">
-          {/* Header & Actions */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-            <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
-            <button 
-              onClick={handleCreateInvoice}
-              className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 w-full md:w-auto justify-center"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-              </svg>
-              New Invoice
-            </button>
-          </div>
-
-          {/* Filters Bar */}
-          <div className="bg-white p-4 rounded shadow mb-6 flex flex-col md:flex-row gap-4 items-center">
+  // Common Filter Bar
+  const renderFilterBar = () => (
+      <div className="bg-white p-4 rounded shadow mb-6 flex flex-col md:flex-row gap-4 items-center">
              {/* Search */}
              <div className="relative w-full md:w-1/3">
                 <span className="absolute inset-y-0 left-0 flex items-center pl-3">
@@ -721,6 +767,148 @@ const App: React.FC = () => {
                 )}
              </div>
           </div>
+  );
+
+  // Modify Status View
+  if (view === 'MODIFY_STATUS' && activeCompany) {
+      return (
+        <div className="min-h-screen bg-gray-50">
+            {renderHeader()}
+            <main className="max-w-7xl mx-auto p-4 md:p-6">
+                <div className="flex items-center gap-4 mb-6">
+                    <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                        &larr; Back to Dashboard
+                    </button>
+                    <h2 className="text-2xl font-bold text-gray-800">Modify Status</h2>
+                </div>
+                
+                {renderFilterBar()}
+
+                {/* Bulk Action Bar */}
+                <div className="bg-blue-50 p-4 rounded shadow border border-blue-200 mb-4 flex justify-between items-center">
+                    <div className="flex gap-4 items-center">
+                        <span className="font-bold text-blue-900">{selectedInvoiceNos.length} Selected</span>
+                        <div className="flex items-center gap-2">
+                             <label className="text-sm text-gray-700">Set Status To:</label>
+                             <select 
+                                className="border border-gray-300 rounded p-2 bg-white text-black"
+                                value={bulkStatus}
+                                onChange={(e) => setBulkStatus(e.target.value as ShipmentStatus)}
+                            >
+                                {SHIPMENT_STATUSES.map(status => (
+                                    <option key={status} value={status}>{status}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={handleBulkStatusUpdate}
+                        disabled={selectedInvoiceNos.length === 0}
+                        className="bg-blue-700 text-white px-6 py-2 rounded font-bold hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                        Save Changes
+                    </button>
+                </div>
+
+                {/* Table */}
+                <div className="bg-white rounded shadow overflow-hidden">
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 text-gray-600 text-sm">
+                                    <th className="p-4 border-b w-10">
+                                        <input 
+                                            type="checkbox" 
+                                            onChange={toggleAllInvoices}
+                                            checked={selectedInvoiceNos.length > 0 && selectedInvoiceNos.length === filteredInvoices.length}
+                                            className="h-4 w-4"
+                                        />
+                                    </th>
+                                    <th className="p-4 border-b">Invoice #</th>
+                                    <th className="p-4 border-b">Date</th>
+                                    <th className="p-4 border-b">Shipper Name</th>
+                                    <th className="p-4 border-b">Mobile</th>
+                                    <th className="p-4 border-b">Amount</th>
+                                    <th className="p-4 border-b">Current Status</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-sm text-gray-700">
+                                {filteredInvoices.length > 0 ? (
+                                    filteredInvoices.map((inv, idx) => (
+                                        <tr key={idx} className={`hover:bg-gray-50 ${selectedInvoiceNos.includes(inv.invoiceNo) ? 'bg-blue-50' : ''}`}>
+                                            <td className="p-4 border-b">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={selectedInvoiceNos.includes(inv.invoiceNo)}
+                                                    onChange={() => toggleInvoiceSelection(inv.invoiceNo)}
+                                                    className="h-4 w-4"
+                                                />
+                                            </td>
+                                            <td className="p-4 border-b font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
+                                            <td className="p-4 border-b">{inv.date}</td>
+                                            <td className="p-4 border-b font-medium">{inv.shipper.name}</td>
+                                            <td className="p-4 border-b text-gray-500">{inv.shipper.tel}</td>
+                                            <td className="p-4 border-b font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                                            <td className="p-4 border-b">
+                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                    inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+                                                    inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
+                                                    'bg-gray-100 text-gray-800'
+                                                }`}>
+                                                    {inv.status || 'Received'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr><td colSpan={7} className="p-8 text-center text-gray-500">No invoices found.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                     </div>
+                </div>
+            </main>
+        </div>
+      );
+  }
+
+  // Regular Company View
+  if (view === 'DASHBOARD' && activeCompany) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        {renderHeader()}
+
+        <main className="max-w-7xl mx-auto p-4 md:p-6">
+          {/* Header & Actions */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+            <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
+            <div className="flex gap-2 w-full md:w-auto">
+                 <button 
+                  onClick={() => {
+                      setSelectedInvoiceNos([]);
+                      setView('MODIFY_STATUS');
+                  }}
+                  className="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 flex items-center gap-2 justify-center flex-1 md:flex-none"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M17.414 2.586a2 2 0 00-2.828 0L7 9.414v2.586h2.586l7.586-7.586a2 2 0 000-2.828z" />
+                    <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
+                  </svg>
+                  Modify Status
+                </button>
+                <button 
+                  onClick={handleCreateInvoice}
+                  className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 justify-center flex-1 md:flex-none"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                  </svg>
+                  New Invoice
+                </button>
+            </div>
+          </div>
+
+          {renderFilterBar()}
 
           {/* Stats Cards - Dynamic based on filters */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
