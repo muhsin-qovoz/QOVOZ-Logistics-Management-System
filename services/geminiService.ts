@@ -1,8 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { InvoiceData } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 // Helper to convert file to base64
 export const fileToGenerativePart = async (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -20,6 +18,15 @@ export const fileToGenerativePart = async (file: File): Promise<string> => {
 
 export const extractInvoiceData = async (base64Image: string): Promise<Partial<InvoiceData>> => {
   try {
+    // Initialize the AI client lazily inside the function.
+    // This prevents the entire app from crashing on load if the API Key is missing.
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("Gemini API Key is missing. Please check your environment variables.");
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: {
@@ -49,7 +56,7 @@ export const extractInvoiceData = async (base64Image: string): Promise<Partial<I
                 name: { type: Type.STRING },
                 idNo: { type: Type.STRING },
                 tel: { type: Type.STRING },
-                vatnos: { type: Type.STRING }, // Updated to vatnos
+                vatnos: { type: Type.STRING },
                 pcs: { type: Type.NUMBER },
                 weight: { type: Type.NUMBER },
               }
