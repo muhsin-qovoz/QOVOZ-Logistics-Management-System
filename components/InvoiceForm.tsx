@@ -9,12 +9,13 @@ interface InvoiceFormProps {
   onCancel: () => void;
   shipmentTypes: ShipmentType[];
   history?: InvoiceData[];
-  isVatEnabled: boolean; // Added isVatEnabled prop
+  isVatEnabled: boolean;
 }
 
 const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCancel, shipmentTypes, history = [], isVatEnabled }) => {
   const [data, setData] = useState<InvoiceData>(initialData);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [matchCandidate, setMatchCandidate] = useState<InvoiceData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const shipmentStatuses: ShipmentStatus[] = [
@@ -70,7 +71,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
     }));
   };
 
-  const handleAutoFill = (type: 'NAME' | 'ID' | 'MOBILE', value: string) => {
+  const handleCheckHistory = (type: 'NAME' | 'ID' | 'MOBILE', value: string) => {
       if (!value) return;
       const normalizedValue = value.trim().toLowerCase();
       
@@ -82,20 +83,29 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       });
 
       if (found) {
-          setData(prev => ({
-              ...prev,
-              shipper: {
-                  ...prev.shipper,
-                  name: found.shipper.name,
-                  idNo: found.shipper.idNo,
-                  tel: found.shipper.tel,
-                  vatnos: found.shipper.vatnos || prev.shipper.vatnos
-              },
-              consignee: {
-                  ...found.consignee
-              }
-          }));
+          // If we found a match, store it as a candidate instead of auto-filling immediately
+          // This prevents accidental overwrites and gives user control
+          setMatchCandidate(found);
       }
+  };
+
+  const applyAutoFill = () => {
+      if (!matchCandidate) return;
+
+      setData(prev => ({
+          ...prev,
+          shipper: {
+              ...prev.shipper,
+              name: matchCandidate.shipper.name,
+              idNo: matchCandidate.shipper.idNo,
+              tel: matchCandidate.shipper.tel,
+              vatnos: matchCandidate.shipper.vatnos || prev.shipper.vatnos
+          },
+          consignee: {
+              ...matchCandidate.consignee
+          }
+      }));
+      setMatchCandidate(null);
   };
 
   const addItem = () => {
@@ -206,6 +216,36 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
         </div>
       </div>
 
+      {matchCandidate && (
+          <div className="mb-6 bg-blue-50 border border-blue-200 p-4 rounded-md flex flex-col md:flex-row justify-between items-center gap-4 animate-fade-in">
+              <div>
+                  <div className="flex items-center gap-2 text-blue-800 font-bold">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                      Previous Record Found
+                  </div>
+                  <div className="text-sm text-blue-700 mt-1">
+                      Shipper: <b>{matchCandidate.shipper.name}</b> &rarr; Consignee: <b>{matchCandidate.consignee.name}</b>
+                  </div>
+              </div>
+              <div className="flex gap-3">
+                  <button 
+                      onClick={() => setMatchCandidate(null)}
+                      className="px-4 py-1 text-sm text-blue-600 hover:bg-blue-100 rounded"
+                  >
+                      Dismiss
+                  </button>
+                  <button 
+                      onClick={applyAutoFill}
+                      className="px-4 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded font-bold shadow-sm"
+                  >
+                      Autofill All Details
+                  </button>
+              </div>
+          </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Meta Info */}
         <div className="col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded border border-gray-200">
@@ -246,7 +286,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                     className={inputClass} 
                     value={data.shipper.name} 
                     onChange={e => handleShipperChange('name', e.target.value)}
-                    onBlur={(e) => handleAutoFill('NAME', e.target.value)}
+                    onBlur={(e) => handleCheckHistory('NAME', e.target.value)}
                 />
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -256,7 +296,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                         className={inputClass} 
                         value={data.shipper.idNo} 
                         onChange={e => handleShipperChange('idNo', e.target.value)}
-                        onBlur={(e) => handleAutoFill('ID', e.target.value)}
+                        onBlur={(e) => handleCheckHistory('ID', e.target.value)}
                     />
                 </div>
                 <div>
@@ -265,7 +305,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                         className={inputClass} 
                         value={data.shipper.tel} 
                         onChange={e => handleShipperChange('tel', e.target.value)}
-                        onBlur={(e) => handleAutoFill('MOBILE', e.target.value)}
+                        onBlur={(e) => handleCheckHistory('MOBILE', e.target.value)}
                     />
                 </div>
             </div>

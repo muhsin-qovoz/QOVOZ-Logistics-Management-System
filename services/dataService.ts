@@ -1,5 +1,5 @@
 
-import { Company, InvoiceData, AppSettings } from '../types';
+import { Company, InvoiceData, AppSettings, StatusHistoryItem } from '../types';
 
 const STORAGE_KEY = 'qovoz_companies';
 
@@ -21,11 +21,16 @@ const generateMockInvoices = (vatnos: string): InvoiceData[] => {
   const threeDaysAgo = new Date(today); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
   const lastMonth = new Date(today); lastMonth.setMonth(lastMonth.getMonth() - 1);
 
+  const initialHistory: StatusHistoryItem[] = [
+      { status: 'Received', timestamp: new Date().toISOString() }
+  ];
+
   const baseInvoice: InvoiceData = {
     invoiceNo: '502217',
     date: formatDate(today),
     shipmentType: 'IND SEA',
     status: 'Received',
+    statusHistory: initialHistory,
     shipper: {
       name: 'ABID ALI ANSARI',
       idNo: '2577948892',
@@ -60,9 +65,33 @@ const generateMockInvoices = (vatnos: string): InvoiceData[] => {
 
   return [
     { ...baseInvoice, invoiceNo: '502217', date: formatDate(today), financials: { ...baseInvoice.financials, netTotal: 220 }, status: 'Received' },
-    { ...baseInvoice, invoiceNo: '502216', date: formatDate(yesterday), consignee: { ...baseInvoice.consignee, name: 'Mohammed Rafiq', tel: '+966500000001' }, financials: { ...baseInvoice.financials, netTotal: 150 }, status: 'Departed from Branch' },
-    { ...baseInvoice, invoiceNo: '502215', date: formatDate(threeDaysAgo), consignee: { ...baseInvoice.consignee, name: 'Abdul Rahman', tel: '+966500000002' }, financials: { ...baseInvoice.financials, netTotal: 300 }, status: 'In transit' },
-    { ...baseInvoice, invoiceNo: '502210', date: formatDate(lastMonth), consignee: { ...baseInvoice.consignee, name: 'John Doe', tel: '+966500000003' }, financials: { ...baseInvoice.financials, netTotal: 450 }, status: 'Delivered' },
+    { 
+        ...baseInvoice, 
+        invoiceNo: '502216', 
+        date: formatDate(yesterday), 
+        consignee: { ...baseInvoice.consignee, name: 'Mohammed Rafiq', tel: '+966500000001' }, 
+        financials: { ...baseInvoice.financials, netTotal: 150 }, 
+        status: 'Departed from Branch',
+        statusHistory: [...initialHistory, { status: 'Departed from Branch', timestamp: new Date().toISOString() }]
+    },
+    { 
+        ...baseInvoice, 
+        invoiceNo: '502215', 
+        date: formatDate(threeDaysAgo), 
+        consignee: { ...baseInvoice.consignee, name: 'Abdul Rahman', tel: '+966500000002' }, 
+        financials: { ...baseInvoice.financials, netTotal: 300 }, 
+        status: 'In transit',
+        statusHistory: [...initialHistory, { status: 'In transit', timestamp: new Date().toISOString() }]
+    },
+    { 
+        ...baseInvoice, 
+        invoiceNo: '502210', 
+        date: formatDate(lastMonth), 
+        consignee: { ...baseInvoice.consignee, name: 'John Doe', tel: '+966500000003' }, 
+        financials: { ...baseInvoice.financials, netTotal: 450 }, 
+        status: 'Delivered',
+        statusHistory: [...initialHistory, { status: 'Delivered', timestamp: new Date().toISOString() }]
+    },
   ];
 };
 

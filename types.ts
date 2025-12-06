@@ -16,11 +16,18 @@ export type ShipmentStatus =
   | 'Out for delivery'
   | 'Delivered';
 
+export interface StatusHistoryItem {
+  status: ShipmentStatus;
+  timestamp: string; // ISO string with date and time
+  updatedBy?: string;
+}
+
 export interface InvoiceData {
   invoiceNo: string;
   date: string;
   shipmentType: string;
   status?: ShipmentStatus; // Added status
+  statusHistory?: StatusHistoryItem[]; // Track history of status changes
   shipper: {
     name: string;
     idNo: string;

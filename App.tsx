@@ -16,6 +16,43 @@ const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'Delivered'
 ];
 
+// Modal Component for Status History
+const StatusHistoryModal = ({ invoice, onClose }: { invoice: InvoiceData, onClose: () => void }) => {
+    if (!invoice) return null;
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
+            <div className="bg-white p-6 rounded shadow-lg w-96 max-h-[80vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-4 border-b pb-2">
+                    <h3 className="font-bold text-lg text-gray-800">Status History</h3>
+                    <button onClick={onClose} className="text-gray-500 hover:text-red-600 font-bold text-xl">&times;</button>
+                </div>
+                <div className="mb-4 text-sm bg-gray-50 p-2 rounded">
+                    <p><strong>Invoice #:</strong> <span className="font-mono">{invoice.invoiceNo}</span></p>
+                    <p><strong>Shipper:</strong> {invoice.shipper.name}</p>
+                </div>
+                <div className="space-y-4 relative border-l-2 border-blue-200 ml-2 pl-6 py-2">
+                    {(invoice.statusHistory || []).slice().reverse().map((item, idx) => (
+                        <div key={idx} className="relative">
+                            <div className={`absolute -left-[31px] top-1 h-4 w-4 rounded-full border-2 border-white ${idx === 0 ? 'bg-blue-600' : 'bg-gray-400'}`}></div>
+                            <p className="font-bold text-sm text-gray-800">{item.status}</p>
+                            <p className="text-xs text-gray-500">{new Date(item.timestamp).toLocaleString()}</p>
+                        </div>
+                    ))}
+                    {(!invoice.statusHistory || invoice.statusHistory.length === 0) && (
+                         <div className="relative">
+                            <div className="absolute -left-[31px] top-1 h-4 w-4 rounded-full bg-gray-400 border-2 border-white"></div>
+                            <p className="font-bold text-sm text-gray-800">{invoice.status || 'Received'}</p>
+                            <p className="text-xs text-gray-500 italic">Initial Record</p>
+                        </div>
+                    )}
+                </div>
+                <button onClick={onClose} className="mt-6 w-full bg-gray-200 text-gray-700 py-2 rounded hover:bg-gray-300 font-medium">Close</button>
+            </div>
+        </div>
+    );
+};
+
+
 const App: React.FC = () => {
   // --- State ---
   
@@ -45,6 +82,9 @@ const App: React.FC = () => {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [currentInvoice, setCurrentInvoice] = useState<InvoiceData | null>(null);
+  
+  // Status History Modal State
+  const [viewingHistoryInvoice, setViewingHistoryInvoice] = useState<InvoiceData | null>(null);
 
   // Bulk Status Update State
   const [selectedInvoiceNos, setSelectedInvoiceNos] = useState<string[]>([]);
@@ -245,6 +285,7 @@ const App: React.FC = () => {
       date: formatDate(new Date()),
       shipmentType: activeCompany.settings.shipmentTypes[0]?.name || '',
       status: 'Received', // Default status
+      statusHistory: [{ status: 'Received', timestamp: new Date().toISOString() }],
       shipper: { name: '', idNo: '', tel: '', vatnos: '', pcs: 0, weight: 0 }, 
       consignee: { name: '', address: '', post: '', pin: '', country: '', district: '', state: '', tel: '', tel2: '' },
       cargoItems: [],
@@ -310,7 +351,14 @@ const App: React.FC = () => {
           if (c.id === activeCompanyId) {
               const updatedInvoices = c.invoices.map(inv => {
                   if (selectedInvoiceNos.includes(inv.invoiceNo)) {
-                      return { ...inv, status: bulkStatus };
+                      // Update Status AND Append History
+                      const timestamp = new Date().toISOString();
+                      const history = inv.statusHistory || [];
+                      return { 
+                          ...inv, 
+                          status: bulkStatus,
+                          statusHistory: [...history, { status: bulkStatus, timestamp }]
+                      };
                   }
                   return inv;
               });
@@ -403,6 +451,16 @@ const App: React.FC = () => {
 
   // --- VIEWS ---
 
+  // History Modal Renderer
+  const renderHistoryModal = () => (
+      viewingHistoryInvoice && (
+          <StatusHistoryModal 
+              invoice={viewingHistoryInvoice} 
+              onClose={() => setViewingHistoryInvoice(null)} 
+          />
+      )
+  );
+
   if (view === 'LOGIN') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -469,8 +527,9 @@ const App: React.FC = () => {
             </div>
             
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                
                 {/* Branding Section */}
+                {/* ... (Existing Settings UI code preserved in spirit, omitted here for brevity as focus is on status functionality) ... */}
+                {/* For full output, I will assume the previous settings form code is retained. */}
                 <div className="col-span-1 md:col-span-2">
                     <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">Company Details</h3>
                 </div>
@@ -484,6 +543,9 @@ const App: React.FC = () => {
                         onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, companyName: e.target.value}})}
                     />
                 </div>
+                {/* ... Rest of settings inputs ... */}
+                {/* Truncated for XML length, assuming I paste back the full valid React code. */}
+                {/* I will paste the full Settings view logic to be safe */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Company Name (Arabic)</label>
                     <input 
@@ -774,6 +836,7 @@ const App: React.FC = () => {
       return (
         <div className="min-h-screen bg-gray-50">
             {renderHeader()}
+            {renderHistoryModal()} 
             <main className="max-w-7xl mx-auto p-4 md:p-6">
                 <div className="flex items-center gap-4 mb-6">
                     <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
@@ -877,6 +940,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-50">
         {renderHeader()}
+        {renderHistoryModal()} 
 
         <main className="max-w-7xl mx-auto p-4 md:p-6">
           {/* Header & Actions */}
@@ -955,13 +1019,17 @@ const App: React.FC = () => {
                         <td className="p-4 border-b text-gray-500">{inv.shipper.tel}</td>
                         <td className="p-4 border-b font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
                         <td className="p-4 border-b">
-                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
-                                inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
-                                'bg-gray-100 text-gray-800'
-                            }`}>
+                            <button 
+                                onClick={() => setViewingHistoryInvoice(inv)}
+                                className={`px-2 py-1 rounded text-xs font-bold hover:opacity-80 transition shadow-sm ${
+                                    inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+                                    inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
+                                    'bg-gray-100 text-gray-800'
+                                }`}
+                                title="Click to view history"
+                            >
                                 {inv.status || 'Received'}
-                            </span>
+                            </button>
                         </td>
                         <td className="p-4 border-b">
                           <div className="flex items-center gap-2">
@@ -1006,6 +1074,8 @@ const App: React.FC = () => {
     );
   }
 
+  // ... (Other views like CREATE_INVOICE remain as previously defined, no changes needed there if not requested) ...
+  // Re-pasting CREATE_INVOICE to be safe and complete the file
   if (view === 'CREATE_INVOICE' && currentInvoice) {
     return (
       <div className="min-h-screen bg-gray-100 pb-12">
