@@ -15,6 +15,10 @@ export const getOneYearFromNow = () => {
   return d.toISOString().split('T')[0];
 };
 
+export const DEFAULT_TC_HEADER = "ACCEPT THE GOODS ONLY AFTER CHECKING AND CONFIRMING THEM ON DELIVERY.";
+export const DEFAULT_TC_ENGLISH = "NO GUARANTEE FOR GLASS/BREAKABLE ITEMS. COMPANY NOT RESPONSIBLE FOR ITEMS RECEIVED IN DAMAGED CONDITION. COMPLAINTS WILL NOT BE ACCEPTED AFTER 2 DAYS FROM THE DATE OF DELIVERY. COMPANY NOT RESPONSIBLE FOR OCTROI CHARGES OR ANY OTHER CHARGES LEVIED LOCALLY. IN CASE OF CLAIM (LOSS), PROOF OF DOCUMENTS SHOULD BE PRODUCED. SETTLEMENT WILL BE MADE (20 SAR/KGS) PER COMPANY RULES. COMPANY WILL NOT TAKE RESPONSIBILITY FOR NATURAL CALAMITY AND DELAY IN CUSTOMS CLEARANCE.";
+export const DEFAULT_TC_ARABIC = "الشروط: 1. لا توجد مطالب عند الشركة الناشئة للخسائر الناتجة عن الحوادث الطبيعية أو تأخير التخليص الجمركي. 2. لا تتحمل الشركة مسؤولية أي خسارة ناتجة عن سوء الاستخدام أو الأضرار غير المسؤولة أو المسؤوليات المترتبة على أي رسوم ومعاملات تفرض من قبل السلطات الجمركية. 3. الشركة غير مسؤولة عن أي مسؤوليات قانونية ناشئة عن المستندات المفقودة أو التالفة. 4. يتحمل المستلم أو المشتري جميع الرسوم الإضافية، بما في ذلك رسوم التخزين والغرامات المفروضة من قبل الجمارك.";
+
 const generateMockInvoices = (vatnos: string): InvoiceData[] => {
   const today = new Date();
   const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
@@ -117,7 +121,10 @@ export const INITIAL_COMPANIES: Company[] = [
           { name: 'IND SEA', value: 6 },
           { name: 'IND AIR', value: 12 },
           { name: 'PAK SEA', value: 5 }
-      ]
+      ],
+      tcHeader: DEFAULT_TC_HEADER,
+      tcEnglish: DEFAULT_TC_ENGLISH,
+      tcArabic: DEFAULT_TC_ARABIC
     },
     invoices: generateMockInvoices('310434479300003')
   }

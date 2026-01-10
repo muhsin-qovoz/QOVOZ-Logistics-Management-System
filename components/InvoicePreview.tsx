@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { InvoiceData, AppSettings } from '../types';
+import { DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC } from '../services/dataService';
 
 interface InvoicePreviewProps {
   data: InvoiceData;
@@ -54,24 +55,25 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
                     <div className="font-arabic text-right text-sm text-gray-700 font-bold">{settings.addressLine2Arabic}</div>
                 )}
                 
-                <div className="font-bold text-sm mt-1">{settings.phone1} /</div>
-                <div className="font-bold text-sm">{settings.phone2}</div>
+                <div className="font-bold text-sm mt-1">{settings.phone1} / {settings.phone2}</div>
             </div>
         </div>
 
         {/* Invoice Meta Bar */}
         <div className="w-full bg-red-900 text-white flex justify-between items-center px-4 py-1 mb-1 text-xs">
-            <div>DATE: {data.date}</div>
+            <div className="flex flex-col leading-tight">
+                <div>DATE: {data.date}</div>
+                <div>INV: {data.invoiceNo}</div>
+            </div>
             <div className="flex flex-col items-center leading-none">
                 <span>فاتورة ضريبة مبسطة</span>
                 <span>SIMPLIFIED TAX INVOICE</span>
             </div>
-            <div className="text-right">
-                <div className="bg-white text-red-900 px-1 text-[10px] font-bold rounded-sm mb-[2px]">TRK{data.invoiceNo}X99</div>
-                <div className="text-sm font-bold">INV:{data.invoiceNo}</div>
+            <div className="text-right w-[80px]">
+                {/* Empty container to maintain layout after removing TRK ID */}
             </div>
         </div>
-        <div className="w-full bg-red-900 text-white px-4 py-1 text-xs mb-4">
+        <div className="w-full bg-red-900 text-white px-4 py-1 text-xs mb-4 text-center">
              SHIPMENT TYPE: {data.shipmentType}
         </div>
 
@@ -203,25 +205,25 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
         {/* Footer */}
         <div className="mt-8 text-[9px] text-gray-700">
              <div className="text-right font-bold text-red-900 mb-2">THANK YOU FOR YOUR BUSINESS.</div>
-             <div className="font-bold mb-1 text-red-900">TERMS AND CONDITIONS</div>
-             <div className="text-center mb-2 font-bold text-[8px]">ACCEPT THE GOODS ONLY AFTER CHECKING AND CONFIRMING THEM ON DELIVERY.</div>
+             <div className="font-bold mb-1 text-red-900 uppercase">TERMS AND CONDITIONS</div>
+             <div className="text-center mb-2 font-bold text-[8px]">
+                {settings.tcHeader || DEFAULT_TC_HEADER}
+             </div>
              
              <p className="leading-tight text-justify mb-2">
-                 NO GUARANTEE FOR GLASS/BREAKABLE ITEMS. COMPANY NOT RESPONSIBLE FOR ITEMS RECEIVED IN DAMAGED CONDITION. COMPLAINTS WILL NOT BE ACCEPTED AFTER 2 DAYS FROM THE DATE OF DELIVERY. COMPANY NOT RESPONSIBLE FOR OCTROI CHARGES OR ANY OTHER CHARGES LEVIED LOCALLY. IN CASE OF CLAIM (LOSS), PROOF OF DOCUMENTS SHOULD BE PRODUCED. SETTLEMENT WILL BE MADE (20 SAR/KGS) PER COMPANY RULES. COMPANY WILL NOT TAKE RESPONSIBILITY FOR NATURAL CALAMITY AND DELAY IN CUSTOMS CLEARANCE.
+                 {settings.tcEnglish || DEFAULT_TC_ENGLISH}
              </p>
              <p className="leading-tight text-justify font-arabic mb-8" dir="rtl">
-                 الشروط: 1. لا توجد مطالب عند الشركة الناشئة للخسائر الناتجة عن الحوادث الطبيعية أو تأخير التخليص الجمركي. 2. لا تتحمل الشركة مسؤولية أي خسارة ناتجة عن سوء الاستخدام أو الأضرار غير المسؤولة أو المسؤوليات المترتبة على أي رسوم ومعاملات تفرض من قبل السلطات الجمركية. 3. الشركة غير مسؤولة عن أي مسؤوليات قانونية ناشئة عن المستندات المفقودة أو التالفة. 4. يتحمل المستلم أو المشتري جميع الرسوم الإضافية، بما في ذلك رسوم التخزين والغرامات المفروضة من قبل الجمارك.
+                 {settings.tcArabic || DEFAULT_TC_ARABIC}
              </p>
 
              <div className="flex justify-between items-end px-8 mt-12 font-bold text-[10px] text-red-900">
                  <div className="flex flex-col items-center">
-                     <div className="mb-8 font-signature text-2xl text-blue-900">Signature</div>
+                     <div className="mb-12"></div>
                      <div className="border-t border-gray-400 px-4 pt-1">SHIPPER SIGNATURE</div>
                  </div>
                  <div className="flex flex-col items-center">
-                     <div className="mb-4 font-signature text-3xl text-blue-900 rotate-[-10deg]">
-                         {settings.companyName.split(' ')[0]}
-                     </div>
+                     <div className="mb-12"></div>
                      <div className="border-t border-gray-400 px-4 pt-1">CONSIGNEE SIGNATURE</div>
                  </div>
                  <div className="flex flex-col items-center">

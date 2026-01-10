@@ -77,6 +77,10 @@ export interface AppSettings {
   isVatEnabled?: boolean; // Toggle for VAT calculation
   logoUrl?: string;
   shipmentTypes: ShipmentType[];
+  // Terms and Conditions
+  tcHeader?: string;
+  tcEnglish?: string;
+  tcArabic?: string;
 }
 
 export interface Company {

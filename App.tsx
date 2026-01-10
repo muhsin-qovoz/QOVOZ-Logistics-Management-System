@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus } from './types';
 import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
-import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow } from './services/dataService';
+import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC } from './services/dataService';
 
 const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'Received',
@@ -96,7 +96,10 @@ const App: React.FC = () => {
     expiryDate: getOneYearFromNow(),
     settings: {
         shipmentTypes: [],
-        isVatEnabled: false // Disabled by default
+        isVatEnabled: false, // Disabled by default
+        tcHeader: DEFAULT_TC_HEADER,
+        tcEnglish: DEFAULT_TC_ENGLISH,
+        tcArabic: DEFAULT_TC_ARABIC
     }
   });
   
@@ -214,7 +217,10 @@ const App: React.FC = () => {
               vatnoc: newCompany.settings?.vatnoc || c.settings.vatnoc,
               isVatEnabled: newCompany.settings?.isVatEnabled ?? c.settings.isVatEnabled,
               logoUrl: newCompany.settings?.logoUrl || c.settings.logoUrl,
-              shipmentTypes: newCompany.settings?.shipmentTypes || c.settings.shipmentTypes
+              shipmentTypes: newCompany.settings?.shipmentTypes || c.settings.shipmentTypes,
+              tcHeader: newCompany.settings?.tcHeader || c.settings.tcHeader,
+              tcEnglish: newCompany.settings?.tcEnglish || c.settings.tcEnglish,
+              tcArabic: newCompany.settings?.tcArabic || c.settings.tcArabic
             }
           };
         }
@@ -240,7 +246,10 @@ const App: React.FC = () => {
           vatnoc: newCompany.settings.vatnoc || '',
           isVatEnabled: newCompany.settings.isVatEnabled || false,
           logoUrl: newCompany.settings.logoUrl || '',
-          shipmentTypes: newCompany.settings.shipmentTypes || []
+          shipmentTypes: newCompany.settings.shipmentTypes || [],
+          tcHeader: newCompany.settings.tcHeader || DEFAULT_TC_HEADER,
+          tcEnglish: newCompany.settings.tcEnglish || DEFAULT_TC_ENGLISH,
+          tcArabic: newCompany.settings.tcArabic || DEFAULT_TC_ARABIC
         },
         invoices: []
       };
@@ -249,7 +258,7 @@ const App: React.FC = () => {
     }
     
     // Reset Form
-    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC } });
     setEditingCompanyId(null);
     setTempShipmentName('');
     setTempShipmentValue('');
@@ -261,7 +270,12 @@ const App: React.FC = () => {
       username: company.username,
       password: company.password,
       expiryDate: company.expiryDate,
-      settings: { ...company.settings }
+      settings: { 
+        ...company.settings,
+        tcHeader: company.settings.tcHeader || DEFAULT_TC_HEADER,
+        tcEnglish: company.settings.tcEnglish || DEFAULT_TC_ENGLISH,
+        tcArabic: company.settings.tcArabic || DEFAULT_TC_ARABIC
+      }
     });
     // Scroll to top to see form
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -269,7 +283,7 @@ const App: React.FC = () => {
 
   const handleCancelEdit = () => {
     setEditingCompanyId(null);
-    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC } });
     setTempShipmentName('');
     setTempShipmentValue('');
   };
@@ -527,9 +541,6 @@ const App: React.FC = () => {
             </div>
             
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Branding Section */}
-                {/* ... (Existing Settings UI code preserved in spirit, omitted here for brevity as focus is on status functionality) ... */}
-                {/* For full output, I will assume the previous settings form code is retained. */}
                 <div className="col-span-1 md:col-span-2">
                     <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">Company Details</h3>
                 </div>
@@ -543,9 +554,6 @@ const App: React.FC = () => {
                         onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, companyName: e.target.value}})}
                     />
                 </div>
-                {/* ... Rest of settings inputs ... */}
-                {/* Truncated for XML length, assuming I paste back the full valid React code. */}
-                {/* I will paste the full Settings view logic to be safe */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Company Name (Arabic)</label>
                     <input 
@@ -649,6 +657,40 @@ const App: React.FC = () => {
                     />
                 </div>
 
+                {/* Terms and Conditions Section */}
+                <div className="col-span-1 md:col-span-2 mt-2">
+                    <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">Invoice Terms & Conditions</h3>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">T&C Warning Header (Center Bold)</label>
+                            <textarea 
+                                rows={2}
+                                className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-sm"
+                                value={newCompany.settings?.tcHeader || ''}
+                                onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, tcHeader: e.target.value}})}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">T&C Text (English)</label>
+                            <textarea 
+                                rows={4}
+                                className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-sm"
+                                value={newCompany.settings?.tcEnglish || ''}
+                                onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, tcEnglish: e.target.value}})}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">T&C Text (Arabic)</label>
+                            <textarea 
+                                rows={4}
+                                className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-sm text-right font-arabic"
+                                value={newCompany.settings?.tcArabic || ''}
+                                onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, tcArabic: e.target.value}})}
+                            />
+                        </div>
+                    </div>
+                </div>
+
                 {/* Shipment Types Section */}
                 <div className="col-span-1 md:col-span-2 mt-2">
                     <h3 className="font-bold text-blue-900 border-b pb-2 mb-2">Shipment Types</h3>
@@ -733,7 +775,6 @@ const App: React.FC = () => {
 
             </div>
             
-            {/* List of existing companies for reference */}
             <div className="bg-gray-50 p-6 border-t">
                  <h3 className="font-bold text-gray-600 mb-2">Existing Companies ({companies.length})</h3>
                  <div className="space-y-2">
@@ -763,7 +804,6 @@ const App: React.FC = () => {
     );
   }
 
-  // Common Header for Dashboard and Modify Status
   const renderHeader = () => {
       if(!activeCompany) return null;
       return (
@@ -777,10 +817,8 @@ const App: React.FC = () => {
       );
   };
 
-  // Common Filter Bar
   const renderFilterBar = () => (
       <div className="bg-white p-4 rounded shadow mb-6 flex flex-col md:flex-row gap-4 items-center">
-             {/* Search */}
              <div className="relative w-full md:w-1/3">
                 <span className="absolute inset-y-0 left-0 flex items-center pl-3">
                   <svg className="h-5 w-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -796,7 +834,6 @@ const App: React.FC = () => {
                 />
              </div>
 
-             {/* Date Range Selector */}
              <div className="flex gap-2 items-center w-full md:w-auto">
                 <select 
                   className="border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -831,7 +868,6 @@ const App: React.FC = () => {
           </div>
   );
 
-  // Modify Status View
   if (view === 'MODIFY_STATUS' && activeCompany) {
       return (
         <div className="min-h-screen bg-gray-50">
@@ -847,7 +883,6 @@ const App: React.FC = () => {
                 
                 {renderFilterBar()}
 
-                {/* Bulk Action Bar */}
                 <div className="bg-blue-50 p-4 rounded shadow border border-blue-200 mb-4 flex justify-between items-center">
                     <div className="flex gap-4 items-center">
                         <span className="font-bold text-blue-900">{selectedInvoiceNos.length} Selected</span>
@@ -873,7 +908,6 @@ const App: React.FC = () => {
                     </button>
                 </div>
 
-                {/* Table */}
                 <div className="bg-white rounded shadow overflow-hidden">
                      <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
@@ -935,7 +969,6 @@ const App: React.FC = () => {
       );
   }
 
-  // Regular Company View
   if (view === 'DASHBOARD' && activeCompany) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -943,7 +976,6 @@ const App: React.FC = () => {
         {renderHistoryModal()} 
 
         <main className="max-w-7xl mx-auto p-4 md:p-6">
-          {/* Header & Actions */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
             <div className="flex gap-2 w-full md:w-auto">
@@ -974,7 +1006,6 @@ const App: React.FC = () => {
 
           {renderFilterBar()}
 
-          {/* Stats Cards - Dynamic based on filters */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-white p-6 rounded shadow-sm border-l-4 border-blue-500">
               <div className="text-gray-500 text-sm">Shipments ({getRangeLabel()})</div>
@@ -990,7 +1021,6 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Filtered Table */}
           <div className="bg-white rounded shadow overflow-hidden">
             <div className="px-6 py-4 border-b flex justify-between items-center">
               <h3 className="font-bold text-gray-700">Invoices List</h3>
@@ -1074,12 +1104,9 @@ const App: React.FC = () => {
     );
   }
 
-  // ... (Other views like CREATE_INVOICE remain as previously defined, no changes needed there if not requested) ...
-  // Re-pasting CREATE_INVOICE to be safe and complete the file
   if (view === 'CREATE_INVOICE' && currentInvoice) {
     return (
       <div className="min-h-screen bg-gray-100 pb-12">
-          {/* Changed text-white to text-gray-200 */}
           <nav className="bg-blue-900 text-gray-200 p-4 shadow-lg mb-4">
              <div className="max-w-6xl mx-auto flex items-center gap-4">
                 <button onClick={() => setView('DASHBOARD')} className="hover:text-white">&larr; Back</button>
@@ -1092,7 +1119,7 @@ const App: React.FC = () => {
             onCancel={() => setView('DASHBOARD')}
             shipmentTypes={activeCompany?.settings.shipmentTypes || []}
             history={activeInvoices}
-            isVatEnabled={activeCompany?.settings.isVatEnabled || false} // Pass VAT setting
+            isVatEnabled={activeCompany?.settings.isVatEnabled || false} 
           />
       </div>
     );
