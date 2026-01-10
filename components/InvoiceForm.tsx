@@ -248,7 +248,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Meta Info */}
-        <div className="col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded border border-gray-200">
+        <div className="col-span-1 md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded border border-gray-200 order-1">
             <div>
                 <label className="block text-xs font-bold text-gray-600">Invoice No</label>
                 <input type="text" value={data.invoiceNo} onChange={e => setData({...data, invoiceNo: e.target.value})} className={inputClass} />
@@ -277,7 +277,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
         </div>
 
         {/* Shipper */}
-        <div className="border p-4 rounded bg-red-50 border-red-100">
+        <div className="border p-4 rounded bg-red-50 border-red-100 order-3 md:order-2">
           <h3 className="font-bold text-red-900 mb-3 border-b border-red-200 pb-1">Shipper Details</h3>
           <div className="space-y-2">
             <div>
@@ -333,7 +333,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
         </div>
 
         {/* Consignee */}
-        <div className="border p-4 rounded bg-blue-50 border-blue-100">
+        <div className="border p-4 rounded bg-blue-50 border-blue-100 order-2 md:order-3">
           <h3 className="font-bold text-blue-900 mb-3 border-b border-blue-200 pb-1">Consignee Details</h3>
           <div className="space-y-2">
             <div>
@@ -383,7 +383,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       </div>
 
       {/* Items */}
-      <div className="mt-6 border p-4 rounded bg-white">
+      <div className="mt-6 border p-4 rounded bg-white order-4">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-bold text-gray-600">Cargo Items</h3>
             <button onClick={addItem} className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">Add Item</button>
@@ -419,7 +419,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       </div>
 
       {/* Financials Manual Override */}
-      <div className="mt-6 border p-4 rounded bg-gray-50 flex flex-col md:flex-row gap-8 justify-end">
+      <div className="mt-6 border p-4 rounded bg-gray-50 flex flex-col md:flex-row gap-8 justify-end order-5">
            <div className="flex flex-col items-start gap-1">
                <button onClick={calculateFinancials} className="text-blue-600 underline text-xs">Auto-Calculate defaults</button>
                <span className="text-xs text-gray-500 max-w-[200px]">Calculation based on weight * shipment type value + bill charges.</span>
@@ -467,7 +467,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
            </div>
       </div>
 
-      <div className="mt-8 flex justify-end gap-4">
+      <div className="mt-8 flex justify-end gap-4 order-6">
         <button onClick={onCancel} className="px-6 py-2 border rounded text-gray-600 hover:bg-gray-100">Cancel</button>
         <button onClick={() => onSubmit(data)} className="px-6 py-2 bg-blue-900 text-white rounded hover:bg-blue-800 shadow">Generate Invoice</button>
       </div>
