@@ -24,57 +24,71 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
       {/* Actual Paper Representation */}
       <div className="bg-white w-[210mm] min-h-[297mm] p-8 shadow-2xl text-xs font-sans text-gray-900 relative">
         
-        {/* Header */}
-        <div className="flex justify-between items-start mb-4">
-            <div className="w-1/3">
-                <div className="flex items-center gap-2 mb-2">
-                    {settings.logoUrl ? (
-                         <img src={settings.logoUrl} alt="Logo" className="h-16 w-auto object-contain" />
-                    ) : (
-                         <div className="text-3xl font-serif font-bold text-red-900 tracking-tighter uppercase break-words">
-                            {settings.companyName.split(' ')[0]}
-                            <span className="block text-xl text-gray-700">{settings.companyName.split(' ').slice(1).join(' ')}</span>
-                        </div>
-                    )}
+        {/* Header - Contains Side Details Only */}
+        <div className="flex justify-between items-start border-b-2 border-red-900 pb-4 mb-2">
+            {/* Left: English Details */}
+            <div className="w-1/3 flex flex-col items-start">
+                 <div className="text-3xl font-serif font-black text-red-900 uppercase mb-1 leading-none tracking-tighter">
+                    {settings.companyName}
                 </div>
-                <div className="font-bold text-blue-900 text-sm uppercase">{settings.addressLine1}</div>
-                <div className="font-bold text-blue-900 text-sm uppercase">{settings.addressLine2}</div>
+                <div className="text-xs text-blue-900 font-bold leading-tight uppercase tracking-wide">
+                    {settings.addressLine1}
+                </div>
+                {settings.addressLine2 && (
+                    <div className="text-xs text-blue-900 font-bold leading-tight uppercase tracking-wide">
+                        {settings.addressLine2}
+                    </div>
+                )}
+                <div className="font-bold text-[10px] mt-1 text-gray-900">
+                    {settings.phone1} {settings.phone2 && `/ ${settings.phone2}`}
+                </div>
+                {settings.vatnoc && (
+                    <div className="font-bold text-[10px] text-gray-900 mt-0.5">
+                        VAT NO: {settings.vatnoc}
+                    </div>
+                )}
             </div>
 
-            <div className="flex flex-col items-center">
-                 <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=Invoice:${data.invoiceNo}|Date:${data.date}|Total:${data.financials.netTotal}`} alt="QR" className="w-20 h-20" />
+            {/* Center: Logo */}
+            <div className="flex-1 flex justify-center items-center px-2">
+                 {settings.logoUrl && (
+                     <img src={settings.logoUrl} alt="Logo" className="max-h-[110px] max-w-[260px] object-contain" />
+                 )}
             </div>
 
-            <div className="w-1/3 text-right">
-                <div className="text-xl font-bold text-red-900 uppercase">{settings.companyName}</div>
-                <div className="font-arabic text-right my-1 text-lg font-bold text-gray-800">{settings.companyArabicName}</div>
+            {/* Right: Arabic Details */}
+            <div className="w-1/3 text-right flex flex-col items-end">
+                <div className="font-arabic text-3xl font-black text-red-900 mb-1 leading-none">
+                    {settings.companyArabicName}
+                </div>
                 {settings.addressLine1Arabic && (
-                    <div className="font-arabic text-right text-sm text-gray-700 font-bold">{settings.addressLine1Arabic}</div>
+                    <div className="font-arabic text-right text-xs text-blue-900 font-bold leading-tight">{settings.addressLine1Arabic}</div>
                 )}
                 {settings.addressLine2Arabic && (
-                    <div className="font-arabic text-right text-sm text-gray-700 font-bold">{settings.addressLine2Arabic}</div>
+                    <div className="font-arabic text-right text-xs text-blue-900 font-bold leading-tight">{settings.addressLine2Arabic}</div>
                 )}
-                
-                <div className="font-bold text-sm mt-1">{settings.phone1} / {settings.phone2}</div>
+                <div className="font-bold text-[10px] mt-1 text-gray-900" dir="ltr">
+                    {settings.phone1} {settings.phone2 && `/ ${settings.phone2}`}
+                </div>
+                {settings.vatnoc && (
+                    <div className="font-bold text-[10px] text-gray-900 mt-0.5">
+                        الرقم الضريبي: {settings.vatnoc}
+                    </div>
+                )}
             </div>
+        </div>
+
+        {/* Invoice Heading Section - Moved below the title/border line */}
+        <div className="flex flex-col items-center justify-center text-center py-2 mb-2">
+             <div className="text-red-900 font-bold text-xl leading-none mb-1">فاتورة ضريبة مبسطة</div>
+             <div className="text-red-900 font-bold text-lg leading-none uppercase">SIMPLIFIED TAX INVOICE</div>
         </div>
 
         {/* Invoice Meta Bar */}
-        <div className="w-full bg-red-900 text-white flex justify-between items-center px-4 py-1 mb-1 text-xs">
-            <div className="flex flex-col leading-tight">
-                <div>DATE: {data.date}</div>
-                <div>INV: {data.invoiceNo}</div>
-            </div>
-            <div className="flex flex-col items-center leading-none">
-                <span>فاتورة ضريبة مبسطة</span>
-                <span>SIMPLIFIED TAX INVOICE</span>
-            </div>
-            <div className="text-right w-[80px]">
-                {/* Empty container to maintain layout after removing TRK ID */}
-            </div>
-        </div>
-        <div className="w-full bg-red-900 text-white px-4 py-1 text-xs mb-4 text-center">
-             SHIPMENT TYPE: {data.shipmentType}
+        <div className="w-full bg-red-900 text-white flex justify-between items-center px-4 py-1.5 mb-1 text-xs font-bold">
+            <div>DATE: {data.date}</div>
+            <div className="uppercase">SHIPMENT TYPE: {data.shipmentType}</div>
+            <div className="text-right">INV NO: {data.invoiceNo}</div>
         </div>
 
 
@@ -149,21 +163,21 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
                      <div className="w-12 py-1">QTY</div>
                  </div>
 
-                 {/* Table Body - Creating fixed 15 rows to simulate the paper */}
+                 {/* Table Body - Fixed rows for print layout consistency */}
                  {Array.from({ length: 15 }).map((_, index) => {
                      const item1 = data.cargoItems[index] || null;
-                     const item2 = data.cargoItems[index + 15] || null; // Support up to 30 items for double column
+                     const item2 = data.cargoItems[index + 15] || null;
 
                      return (
                         <div key={index} className="flex border-b border-gray-400 last:border-b-0 h-6 items-center">
                              <div className="w-10 border-r border-black h-full text-center flex items-center justify-center">{item1?.slNo}</div>
-                             <div className="flex-1 border-r border-black h-full pl-1 flex items-center uppercase">{item1?.description}</div>
+                             <div className="flex-1 border-r border-black h-full pl-1 flex items-center uppercase overflow-hidden whitespace-nowrap">{item1?.description}</div>
                              <div className="w-16 border-r border-black h-full text-center flex items-center justify-center">{item1?.boxNo}</div>
                              <div className="w-12 border-r border-black h-full text-center flex items-center justify-center">{item1?.qty}</div>
 
                              {/* Right Side */}
                              <div className="w-10 border-r border-black h-full text-center flex items-center justify-center">{item2?.slNo}</div>
-                             <div className="flex-1 border-r border-black h-full pl-1 flex items-center uppercase">{item2?.description}</div>
+                             <div className="flex-1 border-r border-black h-full pl-1 flex items-center uppercase overflow-hidden whitespace-nowrap">{item2?.description}</div>
                              <div className="w-16 border-r border-black h-full text-center flex items-center justify-center">{item2?.boxNo}</div>
                              <div className="w-12 h-full text-center flex items-center justify-center">{item2?.qty}</div>
                         </div>
@@ -174,7 +188,7 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
 
         {/* Financials */}
         <div className="flex mt-0 border-x-2 border-b-2 border-black">
-             <div className="flex-1"></div> {/* Spacer to push totals to right */}
+             <div className="flex-1"></div>
              <div className="w-64 border-l-2 border-black text-[11px] font-bold">
                  <div className="flex justify-between border-b border-gray-400 px-2 py-1">
                      <span>TOTAL</span>
@@ -186,7 +200,6 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
                      <span className="font-arabic font-normal text-right px-2">رسوم الفاتورة</span>
                      <span>{data.financials.billCharges.toFixed(2)}</span>
                  </div>
-                 {/* Conditionally Show VAT Row */}
                  {settings.isVatEnabled && (
                     <div className="flex justify-between border-b border-gray-400 px-2 py-1">
                         <span>VAT (15%)</span>

@@ -647,14 +647,42 @@ const App: React.FC = () => {
                 </div>
 
                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Logo URL (Optional)</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        placeholder="https://..."
-                        value={newCompany.settings?.logoUrl || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, logoUrl: e.target.value}})}
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Logo (260px * 110px)</label>
+                    <div className="flex flex-col gap-2">
+                         <input 
+                             type="file" 
+                             accept="image/png, image/jpeg"
+                             className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black text-sm"
+                             onChange={(e) => {
+                                 const file = e.target.files?.[0];
+                                 if (file) {
+                                     const reader = new FileReader();
+                                     reader.onloadend = () => {
+                                         setNewCompany(prev => ({
+                                             ...prev,
+                                             settings: {
+                                                 ...prev.settings,
+                                                 logoUrl: reader.result as string
+                                             }
+                                         }));
+                                     };
+                                     reader.readAsDataURL(file);
+                                 }
+                             }}
+                         />
+                         {newCompany.settings?.logoUrl && (
+                             <div className="relative inline-block w-fit group">
+                                <img src={newCompany.settings.logoUrl} alt="Logo Preview" className="h-16 w-auto object-contain border bg-white p-1" />
+                                <button 
+                                    onClick={() => setNewCompany(prev => ({...prev, settings: {...prev.settings, logoUrl: ''}}))}
+                                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow hover:bg-red-600"
+                                    title="Remove Logo"
+                                >
+                                    &times;
+                                </button>
+                             </div>
+                         )}
+                    </div>
                 </div>
 
                 {/* Terms and Conditions Section */}
