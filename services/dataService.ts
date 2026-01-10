@@ -1,7 +1,7 @@
 
 import { Company, InvoiceData, AppSettings, StatusHistoryItem } from '../types';
 
-const STORAGE_KEY = 'qovoz_companies';
+const STORAGE_KEY = 'qovoz_companies_v3'; // Updated to v3 to persist the permanent logo for Test Cargo
 
 // Helper for date formatting
 export const formatDate = (date: Date) => {
@@ -116,7 +116,8 @@ export const INITIAL_COMPANIES: Company[] = [
       phone2: '0509015156',
       vatnoc: '310434479300003', // Company VAT
       isVatEnabled: true, // Enabled for test company
-      logoUrl: '',
+      // "TEST CARGO" Logo with Box Icon (Blue/Grey Theme)
+      logoUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNjAgMTEwIiB3aWR0aD0iMjYwIiBoZWlnaHQ9IjExMCI+CiAgPCEtLSBJY29uIC0tPgogIDxwYXRoIGQ9Ik0zMCAzMCBMNzAgMTUgTExMTAgMzAgTExMTAgODAgTDcwIDk1IEwzMCA4MCBaIiBmaWxsPSJub25lIiBzdHJva2U9IiMxZTNhOGEiIHN0cm9rZS13aWR0aD0iMyIvPgogIDxwYXRoIGQ9Ik0zMCAzMCBMNzAgNDUgTExMTAgMzAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFlM2E4YSIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgPHBhdGggZD0iTTcwIDQ1IEw3MCA5NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMWUzYThhIiBzdHJva2Utd2lkdGg9IjMiLz4KICAKICA8IS0tIFRleHQgLS0+CiAgPHRleHQgeD0iMTMwIiB5PSI2MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iOTAwIiBmb250LXNpemU9IjQwIiBmaWxsPSIjMWUzYThhIj5URVNUPC90ZXh0PgogIDx0ZXh0IHg9IjEzMCIgeT0iOTAiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9ImJvbGQiIGZvbnQtc2l6ZT0iMjgiIGZpbGw9IiM2YjcyODAiIGxldHRlci1zcGFjaW5nPSIyIj5DQVJHTzwvdGV4dD4KPC9zdmc+',
       shipmentTypes: [
           { name: 'IND SEA', value: 6 },
           { name: 'IND AIR', value: 12 },
