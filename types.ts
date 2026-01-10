@@ -1,4 +1,5 @@
 
+
 export interface InvoiceItem {
   slNo: number;
   description: string;
@@ -76,6 +77,7 @@ export interface AppSettings {
   vatnoc: string; // Company VAT
   isVatEnabled?: boolean; // Toggle for VAT calculation
   logoUrl?: string;
+  brandColor?: string; // Custom brand color for invoice
   shipmentTypes: ShipmentType[];
   // Terms and Conditions
   tcHeader?: string;

@@ -1,7 +1,7 @@
 
 import { Company, InvoiceData, AppSettings, StatusHistoryItem } from '../types';
 
-const STORAGE_KEY = 'qovoz_companies_v3'; // Updated to v3 to persist the permanent logo for Test Cargo
+const STORAGE_KEY = 'qovoz_companies_v4'; // Updated to v4 for brandColor support
 
 // Helper for date formatting
 export const formatDate = (date: Date) => {
@@ -18,6 +18,7 @@ export const getOneYearFromNow = () => {
 export const DEFAULT_TC_HEADER = "ACCEPT THE GOODS ONLY AFTER CHECKING AND CONFIRMING THEM ON DELIVERY.";
 export const DEFAULT_TC_ENGLISH = "NO GUARANTEE FOR GLASS/BREAKABLE ITEMS. COMPANY NOT RESPONSIBLE FOR ITEMS RECEIVED IN DAMAGED CONDITION. COMPLAINTS WILL NOT BE ACCEPTED AFTER 2 DAYS FROM THE DATE OF DELIVERY. COMPANY NOT RESPONSIBLE FOR OCTROI CHARGES OR ANY OTHER CHARGES LEVIED LOCALLY. IN CASE OF CLAIM (LOSS), PROOF OF DOCUMENTS SHOULD BE PRODUCED. SETTLEMENT WILL BE MADE (20 SAR/KGS) PER COMPANY RULES. COMPANY WILL NOT TAKE RESPONSIBILITY FOR NATURAL CALAMITY AND DELAY IN CUSTOMS CLEARANCE.";
 export const DEFAULT_TC_ARABIC = "الشروط: 1. لا توجد مطالب عند الشركة الناشئة للخسائر الناتجة عن الحوادث الطبيعية أو تأخير التخليص الجمركي. 2. لا تتحمل الشركة مسؤولية أي خسارة ناتجة عن سوء الاستخدام أو الأضرار غير المسؤولة أو المسؤوليات المترتبة على أي رسوم ومعاملات تفرض من قبل السلطات الجمركية. 3. الشركة غير مسؤولة عن أي مسؤوليات قانونية ناشئة عن المستندات المفقودة أو التالفة. 4. يتحمل المستلم أو المشتري جميع الرسوم الإضافية، بما في ذلك رسوم التخزين والغرامات المفروضة من قبل الجمارك.";
+export const DEFAULT_BRAND_COLOR = "#7f1d1d"; // Tailwind red-900
 
 const generateMockInvoices = (vatnos: string): InvoiceData[] => {
   const today = new Date();
@@ -116,6 +117,7 @@ export const INITIAL_COMPANIES: Company[] = [
       phone2: '0509015156',
       vatnoc: '310434479300003', // Company VAT
       isVatEnabled: true, // Enabled for test company
+      brandColor: DEFAULT_BRAND_COLOR,
       // "TEST CARGO" Logo with Box Icon (Blue/Grey Theme)
       logoUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNjAgMTEwIiB3aWR0aD0iMjYwIiBoZWlnaHQ9IjExMCI+CiAgPCEtLSBJY29uIC0tPgogIDxwYXRoIGQ9Ik0zMCAzMCBMNzAgMTUgTExMTAgMzAgTExMTAgODAgTDcwIDk1IEwzMCA4MCBaIiBmaWxsPSJub25lIiBzdHJva2U9IiMxZTNhOGEiIHN0cm9rZS13aWR0aD0iMyIvPgogIDxwYXRoIGQ9Ik0zMCAzMCBMNzAgNDUgTExMTAgMzAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFlM2E4YSIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgPHBhdGggZD0iTTcwIDQ1IEw3MCA5NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMWUzYThhIiBzdHJva2Utd2lkdGg9IjMiLz4KICAKICA8IS0tIFRleHQgLS0+CiAgPHRleHQgeD0iMTMwIiB5PSI2MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iOTAwIiBmb250LXNpemU9IjQwIiBmaWxsPSIjMWUzYThhIj5URVNUPC90ZXh0PgogIDx0ZXh0IHg9IjEzMCIgeT0iOTAiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9ImJvbGQiIGZvbnQtc2l6ZT0iMjgiIGZpbGw9IiM2YjcyODAiIGxldHRlci1zcGFjaW5nPSIyIj5DQVJHTzwvdGV4dD4KPC9zdmc+',
       shipmentTypes: [

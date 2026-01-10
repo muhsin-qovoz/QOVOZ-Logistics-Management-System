@@ -1,9 +1,10 @@
 
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus } from './types';
 import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
-import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC } from './services/dataService';
+import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR } from './services/dataService';
 
 const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'Received',
@@ -99,7 +100,8 @@ const App: React.FC = () => {
         isVatEnabled: false, // Disabled by default
         tcHeader: DEFAULT_TC_HEADER,
         tcEnglish: DEFAULT_TC_ENGLISH,
-        tcArabic: DEFAULT_TC_ARABIC
+        tcArabic: DEFAULT_TC_ARABIC,
+        brandColor: DEFAULT_BRAND_COLOR
     }
   });
   
@@ -217,6 +219,7 @@ const App: React.FC = () => {
               vatnoc: newCompany.settings?.vatnoc || c.settings.vatnoc,
               isVatEnabled: newCompany.settings?.isVatEnabled ?? c.settings.isVatEnabled,
               logoUrl: newCompany.settings?.logoUrl || c.settings.logoUrl,
+              brandColor: newCompany.settings?.brandColor || c.settings.brandColor,
               shipmentTypes: newCompany.settings?.shipmentTypes || c.settings.shipmentTypes,
               tcHeader: newCompany.settings?.tcHeader || c.settings.tcHeader,
               tcEnglish: newCompany.settings?.tcEnglish || c.settings.tcEnglish,
@@ -246,6 +249,7 @@ const App: React.FC = () => {
           vatnoc: newCompany.settings.vatnoc || '',
           isVatEnabled: newCompany.settings.isVatEnabled || false,
           logoUrl: newCompany.settings.logoUrl || '',
+          brandColor: newCompany.settings.brandColor || DEFAULT_BRAND_COLOR,
           shipmentTypes: newCompany.settings.shipmentTypes || [],
           tcHeader: newCompany.settings.tcHeader || DEFAULT_TC_HEADER,
           tcEnglish: newCompany.settings.tcEnglish || DEFAULT_TC_ENGLISH,
@@ -258,7 +262,7 @@ const App: React.FC = () => {
     }
     
     // Reset Form
-    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR } });
     setEditingCompanyId(null);
     setTempShipmentName('');
     setTempShipmentValue('');
@@ -274,7 +278,8 @@ const App: React.FC = () => {
         ...company.settings,
         tcHeader: company.settings.tcHeader || DEFAULT_TC_HEADER,
         tcEnglish: company.settings.tcEnglish || DEFAULT_TC_ENGLISH,
-        tcArabic: company.settings.tcArabic || DEFAULT_TC_ARABIC
+        tcArabic: company.settings.tcArabic || DEFAULT_TC_ARABIC,
+        brandColor: company.settings.brandColor || DEFAULT_BRAND_COLOR
       }
     });
     // Scroll to top to see form
@@ -283,7 +288,7 @@ const App: React.FC = () => {
 
   const handleCancelEdit = () => {
     setEditingCompanyId(null);
-    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR } });
     setTempShipmentName('');
     setTempShipmentValue('');
   };
@@ -683,6 +688,20 @@ const App: React.FC = () => {
                              </div>
                          )}
                     </div>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Brand Color</label>
+                    <div className="flex items-center gap-2">
+                        <input 
+                            type="color" 
+                            className="h-10 w-20 p-1 border border-gray-300 rounded cursor-pointer"
+                            value={newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR} 
+                            onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, brandColor: e.target.value}})}
+                        />
+                        <span className="text-sm text-gray-500 font-mono">{newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Used for headings, borders, and accents on the invoice.</p>
                 </div>
 
                 {/* Terms and Conditions Section */}
