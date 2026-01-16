@@ -1,7 +1,8 @@
 
+
 import { Company, InvoiceData, AppSettings, StatusHistoryItem } from '../types';
 
-const STORAGE_KEY = 'qovoz_companies_v4'; // Updated to v4 for brandColor support
+const STORAGE_KEY = 'qovoz_companies_v6'; // Updated to v6 to force new password data
 
 // Helper for date formatting
 export const formatDate = (date: Date) => {
@@ -20,48 +21,53 @@ export const DEFAULT_TC_ENGLISH = "NO GUARANTEE FOR GLASS/BREAKABLE ITEMS. COMPA
 export const DEFAULT_TC_ARABIC = "الشروط: 1. لا توجد مطالب عند الشركة الناشئة للخسائر الناتجة عن الحوادث الطبيعية أو تأخير التخليص الجمركي. 2. لا تتحمل الشركة مسؤولية أي خسارة ناتجة عن سوء الاستخدام أو الأضرار غير المسؤولة أو المسؤوليات المترتبة على أي رسوم ومعاملات تفرض من قبل السلطات الجمركية. 3. الشركة غير مسؤولة عن أي مسؤوليات قانونية ناشئة عن المستندات المفقودة أو التالفة. 4. يتحمل المستلم أو المشتري جميع الرسوم الإضافية، بما في ذلك رسوم التخزين والغرامات المفروضة من قبل الجمارك.";
 export const DEFAULT_BRAND_COLOR = "#7f1d1d"; // Tailwind red-900
 
-const generateMockInvoices = (vatnos: string): InvoiceData[] => {
+const generateMockInvoices = (
+    startId: number, 
+    prefix: string, 
+    vatnos: string,
+    customerName: string,
+    city: string,
+    cargoDesc: string
+): InvoiceData[] => {
   const today = new Date();
   const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-  const threeDaysAgo = new Date(today); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-  const lastMonth = new Date(today); lastMonth.setMonth(lastMonth.getMonth() - 1);
-
+  
   const initialHistory: StatusHistoryItem[] = [
       { status: 'Received', timestamp: new Date().toISOString() }
   ];
 
   const baseInvoice: InvoiceData = {
-    invoiceNo: '502217',
+    invoiceNo: `${prefix}${startId}`,
     date: formatDate(today),
     shipmentType: 'IND SEA',
     status: 'Received',
     statusHistory: initialHistory,
     shipper: {
-      name: 'ABID ALI ANSARI',
+      name: customerName,
       idNo: '2577948892',
       tel: '+966549934347',
-      vatnos: vatnos, // Correctly placed inside shipper
-      pcs: 1,
-      weight: 30.000,
+      vatnos: vatnos, 
+      pcs: 2,
+      weight: 45.500,
     },
     consignee: {
-      name: 'CHAND ALI',
-      address: 'C/O JAKIRALI, RANKIN PURWA',
-      post: 'AILO',
-      pin: '271871',
+      name: `${customerName} INDIA`,
+      address: '123 MARKET ROAD',
+      post: `${city} CENTER`,
+      pin: '673001',
       country: 'INDIA',
-      district: 'BAHRAICH',
-      state: 'UTTAR PRADESH',
+      district: 'KERALA',
+      state: 'KERALA',
       tel: '+919336038580',
       tel2: ''
     },
     cargoItems: [
-      { slNo: 1, description: 'DTES', boxNo: 'B1', qty: 5 },
-      { slNo: 2, description: 'WATCH', boxNo: 'B1', qty: 3 },
+      { slNo: 1, description: cargoDesc, boxNo: 'B1', qty: 15 },
+      { slNo: 2, description: 'FOOD STUFF', boxNo: 'B2', qty: 5 },
     ],
     financials: {
-      total: 180.00,
-      billCharges: 40.00,
+      total: 200.00,
+      billCharges: 20.00,
       vat: 0.00,
       vatAmount: 0.00,
       netTotal: 220.00
@@ -69,67 +75,112 @@ const generateMockInvoices = (vatnos: string): InvoiceData[] => {
   };
 
   return [
-    { ...baseInvoice, invoiceNo: '502217', date: formatDate(today), financials: { ...baseInvoice.financials, netTotal: 220 }, status: 'Received' },
+    { ...baseInvoice, invoiceNo: `${prefix}${startId}`, date: formatDate(today) },
     { 
         ...baseInvoice, 
-        invoiceNo: '502216', 
+        invoiceNo: `${prefix}${startId + 1}`, 
         date: formatDate(yesterday), 
-        consignee: { ...baseInvoice.consignee, name: 'Mohammed Rafiq', tel: '+966500000001' }, 
-        financials: { ...baseInvoice.financials, netTotal: 150 }, 
+        shipper: { ...baseInvoice.shipper, name: `${customerName} TRADING`, weight: 120.00 },
+        cargoItems: [{ slNo: 1, description: 'ELECTRONICS', boxNo: 'E1', qty: 2 }],
+        financials: { total: 500, billCharges: 20, vat: 0, vatAmount: 0, netTotal: 520 },
         status: 'Departed from Branch',
-        statusHistory: [...initialHistory, { status: 'Departed from Branch', timestamp: new Date().toISOString() }]
-    },
-    { 
-        ...baseInvoice, 
-        invoiceNo: '502215', 
-        date: formatDate(threeDaysAgo), 
-        consignee: { ...baseInvoice.consignee, name: 'Abdul Rahman', tel: '+966500000002' }, 
-        financials: { ...baseInvoice.financials, netTotal: 300 }, 
-        status: 'In transit',
-        statusHistory: [...initialHistory, { status: 'In transit', timestamp: new Date().toISOString() }]
-    },
-    { 
-        ...baseInvoice, 
-        invoiceNo: '502210', 
-        date: formatDate(lastMonth), 
-        consignee: { ...baseInvoice.consignee, name: 'John Doe', tel: '+966500000003' }, 
-        financials: { ...baseInvoice.financials, netTotal: 450 }, 
-        status: 'Delivered',
-        statusHistory: [...initialHistory, { status: 'Delivered', timestamp: new Date().toISOString() }]
+        statusHistory: [
+            { status: 'Received', timestamp: yesterday.toISOString() },
+            { status: 'Departed from Branch', timestamp: today.toISOString() }
+        ]
     },
   ];
 };
 
 export const INITIAL_COMPANIES: Company[] = [
+  // ---------------------------------------------------------
+  // 1. Parent Company (Test Cargo HQ)
+  // Credentials: username: 'test', password: '123'
+  // ---------------------------------------------------------
   {
     id: '1',
     username: 'test',
-    password: 'test',
+    password: '123',
     expiryDate: '2030-12-31',
     settings: {
-      companyName: 'TEST CARGO',
-      companyArabicName: 'جلف كارجو',
-      addressLine1: 'KERALA MARKET,KHUBAIB',
-      addressLine2: 'BURAIDAH',
-      addressLine1Arabic: 'سوق كيرالا شارع خبيب',
-      addressLine2Arabic: 'بريدة',
-      phone1: '0550844081',
-      phone2: '0509015156',
-      vatnoc: '310434479300003', // Company VAT
-      isVatEnabled: true, // Enabled for test company
-      brandColor: DEFAULT_BRAND_COLOR,
-      // "TEST CARGO" Logo with Box Icon (Blue/Grey Theme)
-      logoUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNjAgMTEwIiB3aWR0aD0iMjYwIiBoZWlnaHQ9IjExMCI+CiAgPCEtLSBJY29uIC0tPgogIDxwYXRoIGQ9Ik0zMCAzMCBMNzAgMTUgTExMTAgMzAgTExMTAgODAgTDcwIDk1IEwzMCA4MCBaIiBmaWxsPSJub25lIiBzdHJva2U9IiMxZTNhOGEiIHN0cm9rZS13aWR0aD0iMyIvPgogIDxwYXRoIGQ9Ik0zMCAzMCBMNzAgNDUgTExMTAgMzAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFlM2E4YSIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgPHBhdGggZD0iTTcwIDQ1IEw3MCA5NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMWUzYThhIiBzdHJva2Utd2lkdGg9IjMiLz4KICAKICA8IS0tIFRleHQgLS0+CiAgPHRleHQgeD0iMTMwIiB5PSI2MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iOTAwIiBmb250LXNpemU9IjQwIiBmaWxsPSIjMWUzYThhIj5URVNUPC90ZXh0PgogIDx0ZXh0IHg9IjEzMCIgeT0iOTAiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9ImJvbGQiIGZvbnQtc2l6ZT0iMjgiIGZpbGw9IiM2YjcyODAiIGxldHRlci1zcGFjaW5nPSIyIj5DQVJHTzwvdGV4dD4KPC9zdmc+',
-      shipmentTypes: [
-          { name: 'IND SEA', value: 6 },
-          { name: 'IND AIR', value: 12 },
-          { name: 'PAK SEA', value: 5 }
-      ],
+      companyName: 'TEST CARGO HQ',
+      companyArabicName: 'المقر الرئيسي للشحن',
+      addressLine1: 'KING FAHD ROAD',
+      addressLine2: 'RIYADH',
+      addressLine1Arabic: 'طريق الملك فهد',
+      addressLine2Arabic: 'الرياض',
+      phone1: '011-222-2222',
+      phone2: '050-000-0001',
+      vatnoc: '300000000000001', 
+      isVatEnabled: true,
+      brandColor: "#1e3a8a", // Blue
+      logoUrl: '', 
+      shipmentTypes: [{ name: 'IND SEA', value: 6 }, { name: 'IND AIR', value: 12 }],
       tcHeader: DEFAULT_TC_HEADER,
       tcEnglish: DEFAULT_TC_ENGLISH,
       tcArabic: DEFAULT_TC_ARABIC
     },
-    invoices: generateMockInvoices('310434479300003')
+    invoices: generateMockInvoices(1000, 'HQ-', '300000000000001', 'AL RAJHI TRADING', 'RIYADH', 'TEXTILES')
+  },
+  
+  // ---------------------------------------------------------
+  // 2. Sub-Branch 1 (Dammam)
+  // Credentials: username: 'test1', password: 'test1'
+  // ---------------------------------------------------------
+  {
+    id: '2',
+    parentId: '1', // Linked to Test Cargo HQ
+    username: 'test1',
+    password: 'test1',
+    expiryDate: '2030-12-31',
+    settings: {
+      companyName: 'TEST BRANCH 1 (DAMMAM)',
+      companyArabicName: 'فرع الدمام',
+      addressLine1: 'DAMMAM PORT ROAD',
+      addressLine2: 'DAMMAM',
+      addressLine1Arabic: 'طريق ميناء الدمام',
+      addressLine2Arabic: 'الدمام',
+      phone1: '013-333-3333',
+      phone2: '050-000-0002',
+      vatnoc: '300000000000002', 
+      isVatEnabled: true,
+      brandColor: "#047857", // Green
+      shipmentTypes: [{ name: 'IND SEA', value: 5.5 }, { name: 'IND AIR', value: 11.5 }],
+      tcHeader: DEFAULT_TC_HEADER,
+      tcEnglish: DEFAULT_TC_ENGLISH,
+      tcArabic: DEFAULT_TC_ARABIC
+    },
+    invoices: generateMockInvoices(2000, 'DAM-', '300000000000002', 'EASTERN SUPPLIES LLC', 'DAMMAM', 'INDUSTRIAL PARTS')
+  },
+
+  // ---------------------------------------------------------
+  // 3. Sub-Branch 2 (Jeddah)
+  // Credentials: username: 'test2', password: 'test2'
+  // ---------------------------------------------------------
+  {
+    id: '3',
+    parentId: '1', // Linked to Test Cargo HQ
+    username: 'test2',
+    password: 'test2',
+    expiryDate: '2030-12-31',
+    settings: {
+      companyName: 'TEST BRANCH 2 (JEDDAH)',
+      companyArabicName: 'فرع جدة',
+      addressLine1: 'PALESTINE STREET',
+      addressLine2: 'JEDDAH',
+      addressLine1Arabic: 'شارع فلسطين',
+      addressLine2Arabic: 'جدة',
+      phone1: '012-444-4444',
+      phone2: '050-000-0003',
+      vatnoc: '300000000000003', 
+      isVatEnabled: true,
+      brandColor: "#b91c1c", // Red
+      shipmentTypes: [{ name: 'IND SEA', value: 6.5 }, { name: 'IND AIR', value: 13 }],
+      tcHeader: DEFAULT_TC_HEADER,
+      tcEnglish: DEFAULT_TC_ENGLISH,
+      tcArabic: DEFAULT_TC_ARABIC
+    },
+    invoices: generateMockInvoices(3000, 'JED-', '300000000000003', 'RED SEA MARKETS', 'JEDDAH', 'GIFT ITEMS')
   }
 ];
 

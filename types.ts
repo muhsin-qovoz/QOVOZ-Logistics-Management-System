@@ -1,5 +1,7 @@
 
 
+
+
 export interface InvoiceItem {
   slNo: number;
   description: string;
@@ -58,7 +60,7 @@ export interface InvoiceData {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT';
 
 export interface ShipmentType {
   name: string;
@@ -87,6 +89,7 @@ export interface AppSettings {
 
 export interface Company {
   id: string;
+  parentId?: string; // ID of the parent company if this is a branch
   // Auth
   username: string;
   password: string;
