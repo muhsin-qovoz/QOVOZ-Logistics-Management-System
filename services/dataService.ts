@@ -1,8 +1,7 @@
 
-
 import { Company, InvoiceData, AppSettings, StatusHistoryItem } from '../types';
 
-const STORAGE_KEY = 'qovoz_companies_v6'; // Updated to v6 to force new password data
+const STORAGE_KEY = 'qovoz_companies_v9'; // Updated to v9 for clean company names
 
 // Helper for date formatting
 export const formatDate = (date: Date) => {
@@ -95,16 +94,17 @@ const generateMockInvoices = (
 export const INITIAL_COMPANIES: Company[] = [
   // ---------------------------------------------------------
   // 1. Parent Company (Test Cargo HQ)
-  // Credentials: username: 'test', password: '123'
+  // Credentials: username: 'test', password: 'test'
   // ---------------------------------------------------------
   {
     id: '1',
     username: 'test',
-    password: '123',
+    password: 'test',
     expiryDate: '2030-12-31',
     settings: {
       companyName: 'TEST CARGO HQ',
       companyArabicName: 'المقر الرئيسي للشحن',
+      location: 'RIYADH',
       addressLine1: 'KING FAHD ROAD',
       addressLine2: 'RIYADH',
       addressLine1Arabic: 'طريق الملك فهد',
@@ -134,8 +134,9 @@ export const INITIAL_COMPANIES: Company[] = [
     password: 'test1',
     expiryDate: '2030-12-31',
     settings: {
-      companyName: 'TEST BRANCH 1 (DAMMAM)',
+      companyName: 'TEST BRANCH 1', // Cleaned Name
       companyArabicName: 'فرع الدمام',
+      location: 'DAMMAM',
       addressLine1: 'DAMMAM PORT ROAD',
       addressLine2: 'DAMMAM',
       addressLine1Arabic: 'طريق ميناء الدمام',
@@ -164,8 +165,9 @@ export const INITIAL_COMPANIES: Company[] = [
     password: 'test2',
     expiryDate: '2030-12-31',
     settings: {
-      companyName: 'TEST BRANCH 2 (JEDDAH)',
+      companyName: 'TEST BRANCH 2', // Cleaned Name
       companyArabicName: 'فرع جدة',
+      location: 'JEDDAH',
       addressLine1: 'PALESTINE STREET',
       addressLine2: 'JEDDAH',
       addressLine1Arabic: 'شارع فلسطين',

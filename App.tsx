@@ -1,7 +1,4 @@
 
-
-
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus } from './types';
 import InvoiceForm from './components/InvoiceForm';
@@ -18,6 +15,14 @@ const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'Out for delivery',
   'Delivered'
 ];
+
+// Extended Invoice Type for Dashboard Display
+type DashboardInvoice = InvoiceData & {
+    _companyId: string;
+    _locationName: string;
+    _companyName: string;
+    _isHeadOffice: boolean;
+};
 
 // Modal Component for Status History
 const StatusHistoryModal = ({ invoice, onClose }: { invoice: InvoiceData, onClose: () => void }) => {
@@ -83,6 +88,7 @@ const App: React.FC = () => {
   // Dashboard State
   const [searchQuery, setSearchQuery] = useState('');
   const [dateRange, setDateRange] = useState<'TODAY' | 'WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM'>('TODAY');
+  const [dashboardLocationFilter, setDashboardLocationFilter] = useState<string>('ALL'); // Filter by Company ID or ALL
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [currentInvoice, setCurrentInvoice] = useState<InvoiceData | null>(null);
@@ -105,7 +111,8 @@ const App: React.FC = () => {
         tcHeader: DEFAULT_TC_HEADER,
         tcEnglish: DEFAULT_TC_ENGLISH,
         tcArabic: DEFAULT_TC_ARABIC,
-        brandColor: DEFAULT_BRAND_COLOR
+        brandColor: DEFAULT_BRAND_COLOR,
+        location: ''
     }
   });
   
@@ -122,6 +129,37 @@ const App: React.FC = () => {
   const activeCompany = useMemo(() => 
     companies.find(c => c.id === activeCompanyId), 
   [companies, activeCompanyId]);
+
+  // Determine the "Family" of companies the logged-in user can see
+  const relatedCompanies = useMemo(() => {
+    if (isSuperAdmin) return companies;
+    if (!activeCompany) return [];
+    
+    // If I am HQ (no parent), get me and my children (branches)
+    if (!activeCompany.parentId) {
+        return companies.filter(c => c.id === activeCompany.id || c.parentId === activeCompany.id);
+    }
+    
+    // If I am a Branch, show the whole network (My Parent + Me + My Siblings)
+    return companies.filter(c => 
+        c.id === activeCompany.parentId || // My Parent
+        c.parentId === activeCompany.parentId || // My Siblings (including me)
+        c.id === activeCompany.id // Fallback for myself
+    );
+  }, [companies, activeCompany, isSuperAdmin]);
+
+  // Aggregate invoices from all related companies
+  const allNetworkInvoices = useMemo<DashboardInvoice[]>(() => {
+    return relatedCompanies.flatMap(c => 
+        c.invoices.map(inv => ({
+            ...inv,
+            _companyId: c.id,
+            _locationName: c.settings.location || c.settings.addressLine2 || c.settings.companyName,
+            _companyName: c.settings.companyName,
+            _isHeadOffice: !c.parentId
+        }))
+    );
+  }, [relatedCompanies]);
 
   const activeInvoices = activeCompany?.invoices || [];
 
@@ -154,6 +192,16 @@ const App: React.FC = () => {
 
       setActiveCompanyId(company.id);
       setIsSuperAdmin(false);
+
+      // Initialize Dashboard Filter logic
+      if (company.parentId) {
+        // If logging in as a branch, force filter to own location
+        setDashboardLocationFilter(company.id);
+      } else {
+        // If logging in as HQ, show ALL by default
+        setDashboardLocationFilter('ALL'); 
+      }
+
       setView('DASHBOARD');
     } else {
       setLoginError('Invalid Username/Password');
@@ -234,6 +282,7 @@ const App: React.FC = () => {
               ...newCompany.settings,
               companyName: newCompany.settings?.companyName || c.settings.companyName,
               companyArabicName: newCompany.settings?.companyArabicName || c.settings.companyArabicName,
+              location: newCompany.settings?.location || c.settings.location,
               addressLine1: newCompany.settings?.addressLine1 || c.settings.addressLine1,
               addressLine2: newCompany.settings?.addressLine2 || c.settings.addressLine2,
               addressLine1Arabic: newCompany.settings?.addressLine1Arabic || c.settings.addressLine1Arabic,
@@ -265,6 +314,7 @@ const App: React.FC = () => {
         settings: {
           companyName: newCompany.settings.companyName || '',
           companyArabicName: newCompany.settings.companyArabicName || '',
+          location: newCompany.settings.location || '',
           addressLine1: newCompany.settings.addressLine1 || '',
           addressLine2: newCompany.settings.addressLine2 || '',
           addressLine1Arabic: newCompany.settings.addressLine1Arabic || '',
@@ -287,7 +337,7 @@ const App: React.FC = () => {
     }
     
     // Reset Form
-    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, location: '' } });
     setEditingCompanyId(null);
     setIsBranch(false);
     setSelectedParentId('');
@@ -316,7 +366,8 @@ const App: React.FC = () => {
         tcHeader: company.settings.tcHeader || DEFAULT_TC_HEADER,
         tcEnglish: company.settings.tcEnglish || DEFAULT_TC_ENGLISH,
         tcArabic: company.settings.tcArabic || DEFAULT_TC_ARABIC,
-        brandColor: company.settings.brandColor || DEFAULT_BRAND_COLOR
+        brandColor: company.settings.brandColor || DEFAULT_BRAND_COLOR,
+        location: company.settings.location || ''
       }
     });
     // Scroll to top to see form
@@ -325,7 +376,7 @@ const App: React.FC = () => {
 
   const handleCancelEdit = () => {
     setEditingCompanyId(null);
-    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, location: '' } });
     setTempShipmentName('');
     setTempShipmentValue('');
     setIsBranch(false);
@@ -360,22 +411,40 @@ const App: React.FC = () => {
   };
 
   const handleInvoiceSubmit = (data: InvoiceData) => {
-    if (!activeCompanyId) return;
+    // When submitting, check if this invoice belongs to ANY company in our DB (edit mode)
+    // If not found, it's a new invoice for the ACTIVE company.
+    
+    let foundAndUpdated = false;
 
-    setCompanies(prev => prev.map(c => {
-      if (c.id === activeCompanyId) {
-        // Check if invoice exists to update
+    setCompanies(prev => {
+      // 1. Try to find and update existing invoice in ANY company
+      const nextCompanies = prev.map(c => {
         const existingIndex = c.invoices.findIndex(inv => inv.invoiceNo === data.invoiceNo);
         if (existingIndex >= 0) {
+            foundAndUpdated = true;
             const updatedInvoices = [...c.invoices];
             updatedInvoices[existingIndex] = data;
             return { ...c, invoices: updatedInvoices };
-        } else {
-            return { ...c, invoices: [data, ...c.invoices] };
         }
+        return c;
+      });
+
+      if (foundAndUpdated) {
+          return nextCompanies;
       }
-      return c;
-    }));
+
+      // 2. If new, add to active company
+      if (activeCompanyId) {
+          return prev.map(c => {
+              if (c.id === activeCompanyId) {
+                  return { ...c, invoices: [data, ...c.invoices] };
+              }
+              return c;
+          });
+      }
+
+      return prev;
+    });
     
     setCurrentInvoice(data);
     setView('PREVIEW_INVOICE');
@@ -399,14 +468,17 @@ const App: React.FC = () => {
   };
 
   const handleBulkStatusUpdate = () => {
-      if (selectedInvoiceNos.length === 0 || !activeCompanyId) return;
+      if (selectedInvoiceNos.length === 0) return;
 
       if (!window.confirm(`Are you sure you want to update the status of ${selectedInvoiceNos.length} invoices to "${bulkStatus}"?`)) {
           return;
       }
 
       setCompanies(prev => prev.map(c => {
-          if (c.id === activeCompanyId) {
+          // Check if this company has any of the selected invoices
+          const hasInvoices = c.invoices.some(inv => selectedInvoiceNos.includes(inv.invoiceNo));
+          
+          if (hasInvoices) {
               const updatedInvoices = c.invoices.map(inv => {
                   if (selectedInvoiceNos.includes(inv.invoiceNo)) {
                       // Update Status AND Append History
@@ -427,7 +499,6 @@ const App: React.FC = () => {
 
       alert("Status updated successfully!");
       setSelectedInvoiceNos([]); // Clear selection
-      // Optionally stay on page or go back
   };
 
 
@@ -442,8 +513,15 @@ const App: React.FC = () => {
   };
 
   const filteredInvoices = useMemo(() => {
-    let filtered = activeInvoices;
+    // Start with all invoices from the relevant network (HQ + Branches)
+    let filtered = allNetworkInvoices;
 
+    // 1. Dashboard Location Filter
+    if (dashboardLocationFilter !== 'ALL') {
+        filtered = filtered.filter(inv => inv._companyId === dashboardLocationFilter);
+    }
+
+    // 2. Search Query
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(inv => 
@@ -456,6 +534,7 @@ const App: React.FC = () => {
       );
     }
 
+    // 3. Date Range
     const today = new Date();
     today.setHours(0,0,0,0);
     
@@ -487,7 +566,7 @@ const App: React.FC = () => {
     });
 
     return filtered;
-  }, [activeInvoices, searchQuery, dateRange, customStart, customEnd]);
+  }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, dateRange, customStart, customEnd]);
 
   const stats = useMemo(() => {
     const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
@@ -585,6 +664,7 @@ const App: React.FC = () => {
             </div>
             
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* ... (Existing company form code) ... */}
                 <div className="col-span-1 md:col-span-2">
                     <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">Company Details</h3>
                 </div>
@@ -630,6 +710,7 @@ const App: React.FC = () => {
                         </div>
                     )}
                 </div>
+                
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Company Name (Arabic)</label>
                     <input 
@@ -694,6 +775,18 @@ const App: React.FC = () => {
                         className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
                         value={newCompany.settings?.phone2 || ''}
                         onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, phone2: e.target.value}})}
+                    />
+                </div>
+                
+                {/* Relocated Location Input */}
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Location / Branch *</label>
+                    <input 
+                        type="text" 
+                        placeholder="e.g. Riyadh, Dammam"
+                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
+                        value={newCompany.settings?.location || ''}
+                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, location: e.target.value}})}
                     />
                 </div>
                 
@@ -899,7 +992,9 @@ const App: React.FC = () => {
                      {companies.map(c => (
                          <div key={c.id} className="bg-white border p-3 rounded flex justify-between items-center text-sm shadow-sm">
                              <div>
-                                 <span className="font-bold text-gray-800 block">{c.settings.companyName}</span>
+                                 <span className="font-bold text-gray-800 block">
+                                    {c.settings.companyName} {c.settings.location ? `(${c.settings.location})` : ''}
+                                 </span>
                                  <div className="text-gray-500 text-xs">
                                      User: {c.username} | Exp: {c.expiryDate}
                                      {c.parentId && <span className="ml-2 text-blue-600 bg-blue-50 px-1 rounded border border-blue-200">Sub-Branch</span>}
@@ -982,7 +1077,7 @@ const App: React.FC = () => {
                 </div>
                 
                 <div className="p-4 bg-gray-50 text-xs text-gray-500 border-t">
-                    <p>{activeCompany.settings.companyName}</p>
+                    <p>{activeCompany.settings.companyName} {activeCompany.settings.location ? `(${activeCompany.settings.location})` : ''}</p>
                     <p className="mt-1">User: {activeCompany.username}</p>
                 </div>
             </div>
@@ -1000,7 +1095,7 @@ const App: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
               </button>
-              <h1 className="text-xl font-bold">{activeCompany.settings.companyName}</h1>
+              <h1 className="text-xl font-bold">{activeCompany.settings.companyName} {activeCompany.settings.location ? `(${activeCompany.settings.location})` : ''}</h1>
           </div>
           <div className="flex items-center gap-4">
             <span className="hidden md:inline text-sm opacity-80">Logged in as {activeCompany.username}</span>
@@ -1010,9 +1105,12 @@ const App: React.FC = () => {
       );
   };
 
-  const renderFilterBar = () => (
-      <div className="bg-white p-4 rounded shadow mb-6 flex flex-col md:flex-row gap-4 items-center">
-             <div className="relative w-full md:w-1/3">
+  const renderFilterBar = () => {
+      const isBranchUser = activeCompany?.parentId; // Identify if branch user
+      
+      return (
+      <div className="bg-white p-4 rounded shadow mb-6 flex flex-col xl:flex-row gap-4 items-center">
+             <div className="relative w-full xl:w-1/3">
                 <span className="absolute inset-y-0 left-0 flex items-center pl-3">
                   <svg className="h-5 w-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1027,9 +1125,24 @@ const App: React.FC = () => {
                 />
              </div>
 
-             <div className="flex gap-2 items-center w-full md:w-auto">
+             <div className="flex flex-col md:flex-row gap-2 items-center w-full xl:w-auto">
+                {/* Location Filter */}
+                <select
+                    className={`border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto ${isBranchUser ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    value={dashboardLocationFilter}
+                    onChange={(e) => setDashboardLocationFilter(e.target.value)}
+                    disabled={!!isBranchUser}
+                >
+                    {!isBranchUser && <option value="ALL">All Locations</option>}
+                    {relatedCompanies.map(c => (
+                        <option key={c.id} value={c.id}>
+                            {c.settings.companyName} ({c.settings.location || c.settings.addressLine2 || 'Main'})
+                        </option>
+                    ))}
+                </select>
+
                 <select 
-                  className="border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto"
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value as any)}
                 >
@@ -1059,7 +1172,7 @@ const App: React.FC = () => {
                 )}
              </div>
           </div>
-  );
+  )};
 
   const renderBranchManagement = () => {
     if(!activeCompany) return null;
@@ -1099,7 +1212,7 @@ const App: React.FC = () => {
                      {headOffice ? (
                          <div className="bg-white border-l-4 border-blue-900 rounded shadow-md p-6 flex flex-col md:flex-row justify-between items-start md:items-center">
                              <div>
-                                 <h4 className="text-xl font-bold text-gray-900">{headOffice.settings.companyName}</h4>
+                                 <h4 className="text-xl font-bold text-gray-900">{headOffice.settings.companyName} {headOffice.settings.location ? `(${headOffice.settings.location})` : ''}</h4>
                                  <p className="text-gray-500">{headOffice.settings.addressLine2}, {headOffice.settings.addressLine1}</p>
                                  <p className="text-gray-500 text-sm mt-1">Phone: {headOffice.settings.phone1}</p>
                              </div>
@@ -1135,7 +1248,7 @@ const App: React.FC = () => {
                                  <div key={branch.id} className={`bg-white rounded shadow border hover:shadow-lg transition p-5 flex flex-col justify-between ${branch.id === activeCompany.id ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'}`}>
                                      <div>
                                          <div className="flex justify-between items-start">
-                                            <h4 className="font-bold text-gray-800 text-lg mb-1">{branch.settings.companyName}</h4>
+                                            <h4 className="font-bold text-gray-800 text-lg mb-1">{branch.settings.companyName} {branch.settings.location ? `(${branch.settings.location})` : ''}</h4>
                                             {branch.id === activeCompany.id && <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded">You</span>}
                                          </div>
                                          <p className="text-sm text-gray-600">{branch.settings.addressLine2}</p>
@@ -1219,6 +1332,7 @@ const App: React.FC = () => {
                                         />
                                     </th>
                                     <th className="p-4 border-b">Invoice #</th>
+                                    <th className="p-4 border-b">Location</th>
                                     <th className="p-4 border-b">Date</th>
                                     <th className="p-4 border-b">Shipper Name</th>
                                     <th className="p-4 border-b">Mobile</th>
@@ -1239,6 +1353,9 @@ const App: React.FC = () => {
                                                 />
                                             </td>
                                             <td className="p-4 border-b font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
+                                            <td className="p-4 border-b text-xs text-gray-500">
+                                                {inv._locationName}
+                                            </td>
                                             <td className="p-4 border-b">{inv.date}</td>
                                             <td className="p-4 border-b font-medium">{inv.shipper.name}</td>
                                             <td className="p-4 border-b text-gray-500">{inv.shipper.tel}</td>
@@ -1255,7 +1372,7 @@ const App: React.FC = () => {
                                         </tr>
                                     ))
                                 ) : (
-                                    <tr><td colSpan={7} className="p-8 text-center text-gray-500">No invoices found.</td></tr>
+                                    <tr><td colSpan={8} className="p-8 text-center text-gray-500">No invoices found.</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -1333,6 +1450,7 @@ const App: React.FC = () => {
                 <thead>
                   <tr className="bg-gray-50 text-gray-600 text-sm">
                     <th className="p-4 border-b">Invoice #</th>
+                    <th className="p-4 border-b">Location</th>
                     <th className="p-4 border-b">Date</th>
                     <th className="p-4 border-b">Shipper Name</th>
                     <th className="p-4 border-b">Mobile</th>
@@ -1346,6 +1464,9 @@ const App: React.FC = () => {
                     filteredInvoices.map((inv, idx) => (
                       <tr key={idx} className="hover:bg-gray-50">
                         <td className="p-4 border-b font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
+                        <td className="p-4 border-b text-xs text-gray-500">
+                           {inv._locationName}
+                        </td>
                         <td className="p-4 border-b">{inv.date}</td>
                         <td className="p-4 border-b font-medium">{inv.shipper.name}</td>
                         <td className="p-4 border-b text-gray-500">{inv.shipper.tel}</td>
@@ -1392,7 +1513,7 @@ const App: React.FC = () => {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-gray-500">
+                      <td colSpan={8} className="p-8 text-center text-gray-500">
                         No invoices found matching your criteria.
                       </td>
                     </tr>
@@ -1428,10 +1549,20 @@ const App: React.FC = () => {
   }
 
   if (view === 'PREVIEW_INVOICE' && currentInvoice && activeCompany) {
+    // Note: InvoicePreview usually needs settings of the invoice's creator
+    // If viewing a branch invoice from HQ, we should technically pass that branch's settings.
+    // For now, defaulting to activeCompany settings (viewing user), or we could try to find the company 
+    // from the invoiceNo logic if we needed exact letterhead of the branch.
+    // Given the prompt didn't specify strict letterhead switching for preview, we keep activeCompany.
+    // However, if we wanted to be precise, we'd find the owner company of currentInvoice.
+    
+    // Let's try to find the owner for the preview to be accurate
+    const ownerCompany = companies.find(c => c.invoices.some(inv => inv.invoiceNo === currentInvoice.invoiceNo)) || activeCompany;
+
     return (
       <InvoicePreview 
         data={currentInvoice} 
-        settings={activeCompany.settings}
+        settings={ownerCompany.settings}
         onBack={() => setView('DASHBOARD')} 
       />
     );

@@ -1,7 +1,4 @@
 
-
-
-
 export interface InvoiceItem {
   slNo: number;
   description: string;
@@ -70,6 +67,7 @@ export interface ShipmentType {
 export interface AppSettings {
   companyName: string;
   companyArabicName: string;
+  location?: string; // New separate location field
   addressLine1: string;
   addressLine2: string;
   addressLine1Arabic?: string;
