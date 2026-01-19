@@ -1270,7 +1270,8 @@ const App: React.FC = () => {
     let relevantInvoices = allNetworkInvoices;
 
     // 2. Apply Location Filter
-    if (dashboardLocationFilter !== 'ALL') {
+    // Only apply specific filter if it is NOT 'ALL'
+    if (dashboardLocationFilter && dashboardLocationFilter !== 'ALL') {
         relevantInvoices = relevantInvoices.filter(inv => inv._companyId === dashboardLocationFilter);
     }
 
@@ -1282,7 +1283,7 @@ const App: React.FC = () => {
         idNo: string;
         mobile: string;
         vatNo: string;
-        location: string;
+        location: string; 
         totalShipments: number;
     };
     
@@ -1293,7 +1294,11 @@ const App: React.FC = () => {
         if (!shipper.name) return; // Skip empty records
         
         // Key generation: Try ID, else Name+Tel
-        const key = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
+        const identityKey = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
+        
+        // If "ALL" locations, include company ID in key to separate them one by one per branch
+        // If specific location selected, filtering already happened, but key remains unique per branch logic effectively.
+        const key = `${identityKey}_${inv._companyId}`;
         
         if (!customersMap.has(key)) {
             customersMap.set(key, {
@@ -1302,7 +1307,7 @@ const App: React.FC = () => {
                 idNo: shipper.idNo,
                 mobile: shipper.tel,
                 vatNo: shipper.vatnos,
-                location: inv._locationName, 
+                location: inv._locationName, // Store single location
                 totalShipments: 0
             });
         }
@@ -1345,7 +1350,10 @@ const App: React.FC = () => {
                 <div className="bg-white rounded shadow overflow-hidden">
                     <div className="px-6 py-4 border-b flex justify-between items-center">
                         <h3 className="font-bold text-gray-700">Customer List</h3>
-                         <span className="text-xs text-gray-500">Showing {customers.length} unique customers</span>
+                         <span className="text-xs text-gray-500">
+                             Showing {customers.length} entries 
+                             {dashboardLocationFilter === 'ALL' ? ' across all locations' : ' in selected location'}
+                         </span>
                     </div>
                      <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
@@ -1355,7 +1363,7 @@ const App: React.FC = () => {
                                     <th className="p-4 border-b">ID No</th>
                                     <th className="p-4 border-b">Mobile</th>
                                     <th className="p-4 border-b">VAT No</th>
-                                    <th className="p-4 border-b">Primary Branch</th>
+                                    <th className="p-4 border-b">Branch</th>
                                     <th className="p-4 border-b text-center">Total Shipments</th>
                                 </tr>
                             </thead>
@@ -1367,7 +1375,9 @@ const App: React.FC = () => {
                                             <td className="p-4 font-mono">{cust.idNo || '-'}</td>
                                             <td className="p-4 text-gray-600">{cust.mobile || '-'}</td>
                                             <td className="p-4 text-gray-600">{cust.vatNo || '-'}</td>
-                                            <td className="p-4 text-xs">{cust.location}</td>
+                                            <td className="p-4 text-xs font-bold text-gray-500">
+                                                {cust.location}
+                                            </td>
                                             <td className="p-4 text-center font-bold">{cust.totalShipments}</td>
                                         </tr>
                                     ))
