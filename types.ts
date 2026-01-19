@@ -57,7 +57,7 @@ export interface InvoiceData {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS';
 
 export interface ShipmentType {
   name: string;

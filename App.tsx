@@ -223,6 +223,10 @@ const App: React.FC = () => {
   const handleNavClick = (newView: ViewState) => {
       setView(newView);
       setIsMenuOpen(false);
+      
+      // Reset search query when changing views for better UX
+      setSearchQuery('');
+
       // Reset selections if moving away from bulk edit
       if (newView !== 'MODIFY_STATUS') {
           setSelectedInvoiceNos([]);
@@ -605,6 +609,15 @@ const App: React.FC = () => {
     const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
     const totalShipments = filteredInvoices.length;
     return { totalRevenue, totalShipments };
+  }, [filteredInvoices]);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    filteredInvoices.forEach(inv => {
+      const s = inv.status || 'Received';
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    return counts;
   }, [filteredInvoices]);
 
   const getRangeLabel = () => {
@@ -1114,6 +1127,13 @@ const App: React.FC = () => {
                          </svg>
                          Create Invoice
                     </button>
+                    
+                    <button onClick={() => handleNavClick('CUSTOMERS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'CUSTOMERS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
+                        </svg>
+                        Customers
+                    </button>
 
                      <button onClick={() => handleNavClick('MODIFY_STATUS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'MODIFY_STATUS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -1205,38 +1225,165 @@ const App: React.FC = () => {
                     ))}
                 </select>
 
-                <select 
-                  className="border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto"
-                  value={dateRange}
-                  onChange={(e) => setDateRange(e.target.value as any)}
-                >
-                  <option value="TODAY">Today</option>
-                  <option value="WEEK">This Week</option>
-                  <option value="MONTH">This Month</option>
-                  <option value="LAST_MONTH">Last Month</option>
-                  <option value="CUSTOM">Custom Date</option>
-                </select>
+                {/* Hide Date Range Picker in Customers View */}
+                {view !== 'CUSTOMERS' && (
+                    <>
+                        <select 
+                        className="border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto"
+                        value={dateRange}
+                        onChange={(e) => setDateRange(e.target.value as any)}
+                        >
+                        <option value="TODAY">Today</option>
+                        <option value="WEEK">This Week</option>
+                        <option value="MONTH">This Month</option>
+                        <option value="LAST_MONTH">Last Month</option>
+                        <option value="CUSTOM">Custom Date</option>
+                        </select>
 
-                {dateRange === 'CUSTOM' && (
-                  <div className="flex gap-2 items-center">
-                    <input 
-                      type="date" 
-                      className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
-                      value={customStart}
-                      onChange={(e) => setCustomStart(e.target.value)}
-                    />
-                    <span className="text-gray-500">-</span>
-                    <input 
-                      type="date" 
-                      className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
-                      value={customEnd}
-                      onChange={(e) => setCustomEnd(e.target.value)}
-                    />
-                  </div>
+                        {dateRange === 'CUSTOM' && (
+                        <div className="flex gap-2 items-center">
+                            <input 
+                            type="date" 
+                            className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
+                            value={customStart}
+                            onChange={(e) => setCustomStart(e.target.value)}
+                            />
+                            <span className="text-gray-500">-</span>
+                            <input 
+                            type="date" 
+                            className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
+                            value={customEnd}
+                            onChange={(e) => setCustomEnd(e.target.value)}
+                            />
+                        </div>
+                        )}
+                    </>
                 )}
              </div>
           </div>
   )};
+
+  const renderCustomers = () => {
+    if (!activeCompany) return null;
+
+    // 1. Get Base Invoices based on network (same logic as dashboard/invoices)
+    let relevantInvoices = allNetworkInvoices;
+
+    // 2. Apply Location Filter
+    if (dashboardLocationFilter !== 'ALL') {
+        relevantInvoices = relevantInvoices.filter(inv => inv._companyId === dashboardLocationFilter);
+    }
+
+    // 3. Extract Unique Customers (Shippers)
+    // Define a type for aggregated customer
+    type AggregatedCustomer = {
+        key: string;
+        name: string;
+        idNo: string;
+        mobile: string;
+        vatNo: string;
+        location: string;
+        totalShipments: number;
+    };
+    
+    const customersMap = new Map<string, AggregatedCustomer>();
+
+    relevantInvoices.forEach(inv => {
+        const shipper = inv.shipper;
+        if (!shipper.name) return; // Skip empty records
+        
+        // Key generation: Try ID, else Name+Tel
+        const key = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
+        
+        if (!customersMap.has(key)) {
+            customersMap.set(key, {
+                key,
+                name: shipper.name,
+                idNo: shipper.idNo,
+                mobile: shipper.tel,
+                vatNo: shipper.vatnos,
+                location: inv._locationName, 
+                totalShipments: 0
+            });
+        }
+        
+        const customer = customersMap.get(key);
+        if (customer) {
+            customer.totalShipments += 1;
+        }
+    });
+    
+    let customers = Array.from(customersMap.values());
+
+    // 4. Search Filter
+    if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        customers = customers.filter(c => 
+            (c.name && c.name.toLowerCase().includes(q)) ||
+            (c.mobile && c.mobile.includes(q)) ||
+            (c.idNo && c.idNo.includes(q))
+        );
+    }
+
+    // Sort by name
+    customers.sort((a, b) => a.name.localeCompare(b.name));
+
+    return (
+        <div className="min-h-screen bg-gray-50">
+             {renderHeader()}
+             {renderSidebar()}
+             <main className="max-w-7xl mx-auto p-4 md:p-6">
+                <div className="flex items-center gap-4 mb-6">
+                     <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                        &larr; Back to Dashboard
+                    </button>
+                     <h2 className="text-2xl font-bold text-gray-800">Customers</h2>
+                </div>
+                
+                {renderFilterBar()} 
+
+                <div className="bg-white rounded shadow overflow-hidden">
+                    <div className="px-6 py-4 border-b flex justify-between items-center">
+                        <h3 className="font-bold text-gray-700">Customer List</h3>
+                         <span className="text-xs text-gray-500">Showing {customers.length} unique customers</span>
+                    </div>
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 text-gray-600 text-sm">
+                                    <th className="p-4 border-b">Customer Name</th>
+                                    <th className="p-4 border-b">ID No</th>
+                                    <th className="p-4 border-b">Mobile</th>
+                                    <th className="p-4 border-b">VAT No</th>
+                                    <th className="p-4 border-b">Primary Branch</th>
+                                    <th className="p-4 border-b text-center">Total Shipments</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-sm text-gray-700">
+                                {customers.length > 0 ? (
+                                    customers.map((cust) => (
+                                        <tr key={cust.key} className="hover:bg-gray-50 border-b last:border-0">
+                                            <td className="p-4 font-bold text-blue-900">{cust.name}</td>
+                                            <td className="p-4 font-mono">{cust.idNo || '-'}</td>
+                                            <td className="p-4 text-gray-600">{cust.mobile || '-'}</td>
+                                            <td className="p-4 text-gray-600">{cust.vatNo || '-'}</td>
+                                            <td className="p-4 text-xs">{cust.location}</td>
+                                            <td className="p-4 text-center font-bold">{cust.totalShipments}</td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={6} className="p-8 text-center text-gray-500">No customers found.</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+             </main>
+        </div>
+    )
+  };
 
   const renderBranchManagement = () => {
     if(!activeCompany) return null;
@@ -1450,6 +1597,10 @@ const App: React.FC = () => {
   if (view === 'BRANCH_MANAGEMENT' && activeCompany) {
       return renderBranchManagement();
   }
+  
+  if (view === 'CUSTOMERS' && activeCompany) {
+      return renderCustomers();
+  }
 
   if (view === 'DASHBOARD' && activeCompany) {
     return (
@@ -1502,6 +1653,54 @@ const App: React.FC = () => {
               <div className="text-gray-500 text-sm">Pending Clearance</div>
               <div className="text-3xl font-bold text-gray-800">3</div>
             </div>
+          </div>
+
+          <h3 className="font-bold text-gray-700 mb-4 text-lg">Shipment Status Overview</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {SHIPMENT_STATUSES.map(status => (
+                  <div key={status} className="bg-white p-4 rounded shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center hover:shadow-md transition">
+                      <div className="text-2xl font-bold text-blue-900">{statusCounts[status] || 0}</div>
+                      <div className="text-xs text-gray-500 font-medium">{status}</div>
+                  </div>
+              ))}
+          </div>
+
+          <h3 className="font-bold text-gray-700 mb-4 text-lg">Recent Activity</h3>
+          <div className="bg-white rounded shadow-sm overflow-hidden border border-gray-100">
+              <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-gray-500">
+                      <tr>
+                          <th className="p-3">Invoice #</th>
+                          <th className="p-3">Date</th>
+                          <th className="p-3">Shipper</th>
+                          <th className="p-3">Status</th>
+                          <th className="p-3 text-right">Amount</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      {filteredInvoices.slice(0, 5).map((inv, idx) => (
+                          <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
+                              <td className="p-3 font-mono font-bold text-blue-800">{inv.invoiceNo}</td>
+                              <td className="p-3 text-gray-600">{inv.date}</td>
+                              <td className="p-3 font-medium">{inv.shipper.name}</td>
+                              <td className="p-3">
+                                  <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
+                                      {inv.status || 'Received'}
+                                  </span>
+                              </td>
+                              <td className="p-3 text-right font-bold text-gray-700">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                          </tr>
+                      ))}
+                      {filteredInvoices.length === 0 && (
+                          <tr><td colSpan={5} className="p-4 text-center text-gray-400">No activity found.</td></tr>
+                      )}
+                  </tbody>
+              </table>
+              {filteredInvoices.length > 0 && (
+                  <div className="p-3 bg-gray-50 text-center border-t">
+                      <button onClick={() => setView('INVOICES')} className="text-blue-600 text-xs font-bold hover:underline">View All Invoices &rarr;</button>
+                  </div>
+              )}
           </div>
         </main>
       </div>

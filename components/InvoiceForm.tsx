@@ -1,6 +1,6 @@
 
-import React, { useState, useRef } from 'react';
-import { InvoiceData, InvoiceItem, ShipmentType, ShipmentStatus } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { InvoiceData, InvoiceItem, ShipmentType } from '../types';
 import { extractInvoiceData, fileToGenerativePart } from '../services/geminiService';
 
 interface InvoiceFormProps {
@@ -13,21 +13,43 @@ interface InvoiceFormProps {
 }
 
 const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCancel, shipmentTypes, history = [], isVatEnabled }) => {
-  const [data, setData] = useState<InvoiceData>(initialData);
+  // Ensure at least one item exists
+  const ensureItems = (items: InvoiceItem[]) => {
+      if (!items || items.length === 0) {
+          return [{
+              slNo: 1,
+              description: '',
+              boxNo: 'B1',
+              qty: 1
+          }];
+      }
+      return items;
+  };
+
+  const [data, setData] = useState<InvoiceData>({
+      ...initialData,
+      cargoItems: ensureItems(initialData.cargoItems),
+      status: initialData.status || 'Received' // Ensure default
+  });
+  
   const [isProcessing, setIsProcessing] = useState(false);
   const [matchCandidate, setMatchCandidate] = useState<InvoiceData | null>(null);
+  const [shouldFocusNewRow, setShouldFocusNewRow] = useState(false);
+  
+  // State to control the "Expanded" look of the Shipment Type dropdown
+  const [isShipmentListOpen, setIsShipmentListOpen] = useState(true);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const shipmentStatuses: ShipmentStatus[] = [
-      'Received',
-      'Departed from Branch',
-      'Received at HO',
-      'Loaded into Container',
-      'In transit',
-      'Arrived at destination',
-      'Out for delivery',
-      'Delivered'
-  ];
+  // Auto-focus new row item
+  useEffect(() => {
+    if (shouldFocusNewRow) {
+        const lastIdx = data.cargoItems.length - 1;
+        const el = document.getElementById(`row-${lastIdx}-desc`);
+        if(el) el.focus();
+        setShouldFocusNewRow(false);
+    }
+  }, [data.cargoItems, shouldFocusNewRow]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -83,8 +105,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       });
 
       if (found) {
-          // If we found a match, store it as a candidate instead of auto-filling immediately
-          // This prevents accidental overwrites and gives user control
           setMatchCandidate(found);
       }
   };
@@ -106,16 +126,19 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
           }
       }));
       setMatchCandidate(null);
+      // After auto-fill, focus on Items
+      focusField('row-0-desc');
   };
 
   const addItem = () => {
     const newItem: InvoiceItem = {
       slNo: data.cargoItems.length + 1,
       description: '',
-      boxNo: 'B1',
+      boxNo: 'B1', 
       qty: 1
     };
     setData(prev => ({ ...prev, cargoItems: [...prev.cargoItems, newItem] }));
+    setShouldFocusNewRow(true);
   };
 
   const updateItem = (index: number, field: keyof InvoiceItem, value: string | number) => {
@@ -125,13 +148,70 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
   };
 
   const removeItem = (index: number) => {
-      setData(prev => ({
-          ...prev,
-          cargoItems: prev.cargoItems.filter((_, i) => i !== index)
-      }))
+      setData(prev => {
+          const filtered = prev.cargoItems.filter((_, i) => i !== index);
+          const reindexed = filtered.map((item, i) => ({ ...item, slNo: i + 1 }));
+          
+          if (reindexed.length === 0) {
+              return {
+                  ...prev,
+                  cargoItems: [{ slNo: 1, description: '', boxNo: 'B1', qty: 1 }]
+              };
+          }
+          return { ...prev, cargoItems: reindexed };
+      });
   }
 
-  // Auto-calculate financials based on shipment type value and weight, plus VAT if enabled
+  // Navigation Helpers
+  const focusField = (id: string) => {
+      // Small timeout to allow render cycle if needed, though usually not strictly necessary for direct moves
+      setTimeout(() => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.focus();
+            if (el instanceof HTMLInputElement) el.select();
+        }
+      }, 10);
+  };
+
+  const handleEnter = (e: React.KeyboardEvent, nextId: string) => {
+      if (e.key === 'Enter') {
+          e.preventDefault();
+          focusField(nextId);
+      }
+  };
+
+  // Handle navigation for continuous entry in items
+  const handleItemKeyDown = (e: React.KeyboardEvent, idx: number, field: keyof InvoiceItem) => {
+      if (e.key === 'Enter' || e.key === 'Tab') {
+          const isLastRow = idx === data.cargoItems.length - 1;
+          
+          if (field === 'description') {
+               if (e.key === 'Enter') {
+                   e.preventDefault();
+                   focusField(`row-${idx}-box`);
+               }
+          } else if (field === 'boxNo') {
+              if (e.key === 'Enter') {
+                   e.preventDefault();
+                   focusField(`row-${idx}-qty`);
+               }
+          } else if (field === 'qty') {
+               if (isLastRow) {
+                   if (!e.shiftKey) { 
+                        e.preventDefault();
+                        addItem();
+                   }
+               } else {
+                   if (e.key === 'Enter') {
+                       e.preventDefault();
+                       focusField(`row-${idx + 1}-desc`);
+                   }
+               }
+          }
+      }
+  };
+
   const calculateFinancials = () => {
       const selectedType = shipmentTypes.find(t => t.name === data.shipmentType);
       const rate = selectedType ? selectedType.value : 0;
@@ -156,7 +236,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       }));
   }
   
-  // Handlers for manual override of Total/BillCharges that auto-update VAT/NetTotal
   const handleManualTotalChange = (val: number) => {
       const total = val;
       const billCharges = data.financials.billCharges;
@@ -184,6 +263,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
   };
 
   const inputClass = "w-full border p-1 text-sm bg-gray-300 text-black placeholder-black border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
+  const openSelectClass = "absolute top-[1.3rem] left-0 w-full z-50 shadow-xl border-blue-500 max-h-60 overflow-y-auto bg-white text-black";
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-lg max-w-4xl mx-auto my-8">
@@ -248,29 +328,53 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Meta Info */}
-        <div className="col-span-1 md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded border border-gray-200 order-1">
+        <div className="col-span-1 md:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded border border-gray-200 order-1">
             <div>
                 <label className="block text-xs font-bold text-gray-600">Invoice No</label>
-                <input type="text" value={data.invoiceNo} onChange={e => setData({...data, invoiceNo: e.target.value})} className={inputClass} />
+                <input id="invoice-no" type="text" value={data.invoiceNo} onChange={e => setData({...data, invoiceNo: e.target.value})} className={inputClass} onKeyDown={(e) => handleEnter(e, 'date')} />
             </div>
             <div>
                 <label className="block text-xs font-bold text-gray-600">Date</label>
-                <input type="text" value={data.date} onChange={e => setData({...data, date: e.target.value})} className={inputClass} />
+                <input id="date" type="text" value={data.date} onChange={e => setData({...data, date: e.target.value})} className={inputClass} onKeyDown={(e) => handleEnter(e, 'shipment-type')} />
             </div>
-            <div>
+            <div className="relative">
                 <label className="block text-xs font-bold text-gray-600">Shipment Type</label>
-                <select value={data.shipmentType} onChange={e => setData({...data, shipmentType: e.target.value})} className={inputClass}>
+                {/* Spacer to hold the grid height when absolute positioned */}
+                <div className="h-[30px] w-full"></div>
+                <select 
+                    id="shipment-type"
+                    value={data.shipmentType} 
+                    autoFocus
+                    size={isShipmentListOpen ? (Math.min(shipmentTypes.length + 1, 8)) : 1}
+                    onFocus={() => setIsShipmentListOpen(true)}
+                    onBlur={() => setIsShipmentListOpen(false)}
+                    onChange={e => {
+                        // Just update value on arrow key / click
+                        setData({...data, shipmentType: e.target.value});
+                    }} 
+                    onClick={() => {
+                        // Click confirms selection
+                        if(isShipmentListOpen) {
+                            setIsShipmentListOpen(false);
+                            focusField('shipper-name');
+                        }
+                    }}
+                    onKeyDown={(e) => {
+                        // Enter or Tab confirms selection
+                        if (e.key === 'Enter' || e.key === 'Tab') {
+                            e.preventDefault();
+                            setIsShipmentListOpen(false);
+                            focusField('shipper-name');
+                        }
+                        if (e.key === 'Escape') {
+                            setIsShipmentListOpen(false);
+                        }
+                    }}
+                    className={`${inputClass} ${isShipmentListOpen ? openSelectClass : 'absolute top-[1.3rem] left-0'}`}
+                >
                     <option value="">Select Type</option>
                     {shipmentTypes.map((type) => (
                         <option key={type.name} value={type.name}>{type.name}</option>
-                    ))}
-                </select>
-            </div>
-             <div>
-                <label className="block text-xs font-bold text-gray-600">Status</label>
-                <select value={data.status || 'Received'} onChange={e => setData({...data, status: e.target.value as any})} className={inputClass}>
-                    {shipmentStatuses.map((status) => (
-                        <option key={status} value={status}>{status}</option>
                     ))}
                 </select>
             </div>
@@ -283,29 +387,35 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
             <div>
                 <label className="text-xs text-gray-600">Name</label>
                 <input 
+                    id="shipper-name"
                     className={inputClass} 
                     value={data.shipper.name} 
                     onChange={e => handleShipperChange('name', e.target.value)}
                     onBlur={(e) => handleCheckHistory('NAME', e.target.value)}
+                    onKeyDown={(e) => handleEnter(e, 'shipper-id')}
                 />
             </div>
             <div className="grid grid-cols-2 gap-2">
                 <div>
                     <label className="text-xs text-gray-600">ID No</label>
                     <input 
+                        id="shipper-id"
                         className={inputClass} 
                         value={data.shipper.idNo} 
                         onChange={e => handleShipperChange('idNo', e.target.value)}
                         onBlur={(e) => handleCheckHistory('ID', e.target.value)}
+                        onKeyDown={(e) => handleEnter(e, 'shipper-mobile')}
                     />
                 </div>
                 <div>
                     <label className="text-xs text-gray-600">Mobile</label>
                     <input 
+                        id="shipper-mobile"
                         className={inputClass} 
                         value={data.shipper.tel} 
                         onChange={e => handleShipperChange('tel', e.target.value)}
                         onBlur={(e) => handleCheckHistory('MOBILE', e.target.value)}
+                        onKeyDown={(e) => handleEnter(e, 'shipper-vat')}
                     />
                 </div>
             </div>
@@ -313,20 +423,22 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
             <div>
                 <label className="text-xs text-gray-600">VAT No</label>
                 <input 
+                    id="shipper-vat"
                     className={inputClass} 
                     value={data.shipper.vatnos} 
-                     onChange={e => handleShipperChange('vatnos', e.target.value)}
+                    onChange={e => handleShipperChange('vatnos', e.target.value)}
+                    onKeyDown={(e) => handleEnter(e, 'shipper-pcs')}
                 />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
                 <div>
                     <label className="text-xs text-gray-600">Pcs</label>
-                    <input type="number" className={inputClass} value={data.shipper.pcs} onChange={e => handleShipperChange('pcs', Number(e.target.value))} />
+                    <input id="shipper-pcs" type="number" className={inputClass} value={data.shipper.pcs} onChange={e => handleShipperChange('pcs', Number(e.target.value))} onKeyDown={(e) => handleEnter(e, 'shipper-weight')} />
                 </div>
                 <div>
                     <label className="text-xs text-gray-600">Weight (KG)</label>
-                    <input type="number" className={inputClass} value={data.shipper.weight} onChange={e => handleShipperChange('weight', Number(e.target.value))} />
+                    <input id="shipper-weight" type="number" className={inputClass} value={data.shipper.weight} onChange={e => handleShipperChange('weight', Number(e.target.value))} onKeyDown={(e) => handleEnter(e, 'consignee-name')} />
                 </div>
             </div>
           </div>
@@ -338,44 +450,50 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
           <div className="space-y-2">
             <div>
                 <label className="text-xs text-gray-600">Name</label>
-                <input className={inputClass} value={data.consignee.name} onChange={e => handleConsigneeChange('name', e.target.value)} />
+                <input id="consignee-name" className={inputClass} value={data.consignee.name} onChange={e => handleConsigneeChange('name', e.target.value)} onKeyDown={(e) => handleEnter(e, 'consignee-address')} />
             </div>
             <div>
                 <label className="text-xs text-gray-600">Address</label>
-                <input className={inputClass} value={data.consignee.address} onChange={e => handleConsigneeChange('address', e.target.value)} />
+                <input id="consignee-address" className={inputClass} value={data.consignee.address} onChange={e => handleConsigneeChange('address', e.target.value)} onKeyDown={(e) => handleEnter(e, 'consignee-post')} />
             </div>
             <div className="grid grid-cols-2 gap-2">
                 <div>
                     <label className="text-xs text-gray-600">Post</label>
-                    <input className={inputClass} value={data.consignee.post} onChange={e => handleConsigneeChange('post', e.target.value)} />
+                    <input id="consignee-post" className={inputClass} value={data.consignee.post} onChange={e => handleConsigneeChange('post', e.target.value)} onKeyDown={(e) => handleEnter(e, 'consignee-district')} />
                 </div>
                  <div>
                     <label className="text-xs text-gray-600">District</label>
-                    <input className={inputClass} value={data.consignee.district} onChange={e => handleConsigneeChange('district', e.target.value)} />
+                    <input id="consignee-district" className={inputClass} value={data.consignee.district} onChange={e => handleConsigneeChange('district', e.target.value)} onKeyDown={(e) => handleEnter(e, 'consignee-state')} />
                 </div>
             </div>
              <div className="grid grid-cols-2 gap-2">
                 <div>
                     <label className="text-xs text-gray-600">State</label>
-                    <input className={inputClass} value={data.consignee.state} onChange={e => handleConsigneeChange('state', e.target.value)} />
+                    <input id="consignee-state" className={inputClass} value={data.consignee.state} onChange={e => handleConsigneeChange('state', e.target.value)} onKeyDown={(e) => handleEnter(e, 'consignee-country')} />
                 </div>
                 <div>
                      <label className="text-xs text-gray-600">Country</label>
-                     <input className={inputClass} value={data.consignee.country} onChange={e => handleConsigneeChange('country', e.target.value)} />
+                     <input id="consignee-country" className={inputClass} value={data.consignee.country} onChange={e => handleConsigneeChange('country', e.target.value)} onKeyDown={(e) => handleEnter(e, 'consignee-pin')} />
                 </div>
             </div>
             <div>
                 <label className="text-xs text-gray-600">Pin</label>
-                <input className={inputClass} value={data.consignee.pin} onChange={e => handleConsigneeChange('pin', e.target.value)} />
+                <input id="consignee-pin" className={inputClass} value={data.consignee.pin} onChange={e => handleConsigneeChange('pin', e.target.value)} onKeyDown={(e) => handleEnter(e, 'consignee-tel')} />
             </div>
              <div className="grid grid-cols-2 gap-2">
                  <div>
                      <label className="text-xs text-gray-600">Mobile</label>
-                     <input className={inputClass} value={data.consignee.tel} onChange={e => handleConsigneeChange('tel', e.target.value)} />
+                     <input id="consignee-tel" className={inputClass} value={data.consignee.tel} onChange={e => handleConsigneeChange('tel', e.target.value)} onKeyDown={(e) => handleEnter(e, 'consignee-tel2')} />
                 </div>
                 <div>
                      <label className="text-xs text-gray-600">Mobile 2</label>
-                     <input className={inputClass} value={data.consignee.tel2} onChange={e => handleConsigneeChange('tel2', e.target.value)} />
+                     <input 
+                        id="consignee-tel2" 
+                        className={inputClass} 
+                        value={data.consignee.tel2} 
+                        onChange={e => handleConsigneeChange('tel2', e.target.value)} 
+                        onKeyDown={(e) => handleEnter(e, 'row-0-desc')} 
+                    />
                 </div>
              </div>
           </div>
@@ -386,7 +504,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       <div className="mt-6 border p-4 rounded bg-white order-4">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-bold text-gray-600">Cargo Items</h3>
-            <button onClick={addItem} className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">Add Item</button>
+            <span className="text-xs text-gray-500 italic">Press <strong>Enter</strong> or <strong>Tab</strong> on the last field to add a new row.</span>
           </div>
           <table className="w-full text-sm">
               <thead className="bg-gray-100">
@@ -401,13 +519,32 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                   {data.cargoItems.map((item, idx) => (
                       <tr key={idx}>
                           <td className="border p-1">
-                              <input className={inputClass} value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} />
+                              <input 
+                                id={`row-${idx}-desc`}
+                                className={inputClass} 
+                                value={item.description} 
+                                onChange={e => updateItem(idx, 'description', e.target.value)} 
+                                onKeyDown={e => handleItemKeyDown(e, idx, 'description')}
+                              />
                           </td>
                           <td className="border p-1">
-                              <input className={`${inputClass} text-center`} value={item.boxNo} onChange={e => updateItem(idx, 'boxNo', e.target.value)} />
+                              <input 
+                                id={`row-${idx}-box`}
+                                className={`${inputClass} text-center`} 
+                                value={item.boxNo} 
+                                onChange={e => updateItem(idx, 'boxNo', e.target.value)} 
+                                onKeyDown={e => handleItemKeyDown(e, idx, 'boxNo')}
+                              />
                           </td>
                           <td className="border p-1">
-                              <input type="number" className={`${inputClass} text-center`} value={item.qty} onChange={e => updateItem(idx, 'qty', Number(e.target.value))} />
+                              <input 
+                                id={`row-${idx}-qty`}
+                                type="number" 
+                                className={`${inputClass} text-center`} 
+                                value={item.qty} 
+                                onChange={e => updateItem(idx, 'qty', Number(e.target.value))} 
+                                onKeyDown={e => handleItemKeyDown(e, idx, 'qty')}
+                              />
                           </td>
                           <td className="border p-1 text-center">
                               <button onClick={() => removeItem(idx)} className="text-red-500 font-bold">&times;</button>
