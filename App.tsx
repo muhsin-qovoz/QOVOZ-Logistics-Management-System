@@ -1672,7 +1672,7 @@ const App: React.FC = () => {
                       <tr>
                           <th className="p-3">Invoice #</th>
                           <th className="p-3">Date</th>
-                          <th className="p-3">Shipper</th>
+                          <th className="p-3">Customer</th>
                           <th className="p-3">Status</th>
                           <th className="p-3 text-right">Amount</th>
                       </tr>
@@ -1682,7 +1682,7 @@ const App: React.FC = () => {
                           <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
                               <td className="p-3 font-mono font-bold text-blue-800">{inv.invoiceNo}</td>
                               <td className="p-3 text-gray-600">{inv.date}</td>
-                              <td className="p-3 font-medium">{inv.shipper.name}</td>
+                              <td className="p-3 font-medium text-gray-900">{inv.shipper.name || 'Unknown'}</td>
                               <td className="p-3">
                                   <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
                                       {inv.status || 'Received'}
