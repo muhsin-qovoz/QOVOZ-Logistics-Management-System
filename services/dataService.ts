@@ -1,7 +1,7 @@
 
 import { Company, InvoiceData, AppSettings, StatusHistoryItem } from '../types';
 
-const STORAGE_KEY = 'qovoz_companies_v9'; // Updated to v9 for clean company names
+const STORAGE_KEY = 'qovoz_companies_v10'; // Updated to v10 for invoice settings
 
 // Helper for date formatting
 export const formatDate = (date: Date) => {
@@ -104,6 +104,8 @@ export const INITIAL_COMPANIES: Company[] = [
     settings: {
       companyName: 'TEST CARGO HQ',
       companyArabicName: 'المقر الرئيسي للشحن',
+      invoicePrefix: 'HQ-',
+      invoiceStartNumber: 1000,
       location: 'RIYADH',
       addressLine1: 'KING FAHD ROAD',
       addressLine2: 'RIYADH',
@@ -136,6 +138,8 @@ export const INITIAL_COMPANIES: Company[] = [
     settings: {
       companyName: 'TEST BRANCH 1', // Cleaned Name
       companyArabicName: 'فرع الدمام',
+      invoicePrefix: 'DAM-',
+      invoiceStartNumber: 2000,
       location: 'DAMMAM',
       addressLine1: 'DAMMAM PORT ROAD',
       addressLine2: 'DAMMAM',
@@ -167,6 +171,8 @@ export const INITIAL_COMPANIES: Company[] = [
     settings: {
       companyName: 'TEST BRANCH 2', // Cleaned Name
       companyArabicName: 'فرع جدة',
+      invoicePrefix: 'JED-',
+      invoiceStartNumber: 3000,
       location: 'JEDDAH',
       addressLine1: 'PALESTINE STREET',
       addressLine2: 'JEDDAH',

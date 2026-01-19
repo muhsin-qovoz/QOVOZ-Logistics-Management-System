@@ -112,6 +112,8 @@ const App: React.FC = () => {
         tcEnglish: DEFAULT_TC_ENGLISH,
         tcArabic: DEFAULT_TC_ARABIC,
         brandColor: DEFAULT_BRAND_COLOR,
+        invoicePrefix: '',
+        invoiceStartNumber: 1000,
         location: ''
     }
   });
@@ -282,6 +284,8 @@ const App: React.FC = () => {
               ...newCompany.settings,
               companyName: newCompany.settings?.companyName || c.settings.companyName,
               companyArabicName: newCompany.settings?.companyArabicName || c.settings.companyArabicName,
+              invoicePrefix: newCompany.settings?.invoicePrefix || c.settings.invoicePrefix,
+              invoiceStartNumber: newCompany.settings?.invoiceStartNumber || c.settings.invoiceStartNumber,
               location: newCompany.settings?.location || c.settings.location,
               addressLine1: newCompany.settings?.addressLine1 || c.settings.addressLine1,
               addressLine2: newCompany.settings?.addressLine2 || c.settings.addressLine2,
@@ -314,6 +318,8 @@ const App: React.FC = () => {
         settings: {
           companyName: newCompany.settings.companyName || '',
           companyArabicName: newCompany.settings.companyArabicName || '',
+          invoicePrefix: newCompany.settings.invoicePrefix || '',
+          invoiceStartNumber: newCompany.settings.invoiceStartNumber || 1000,
           location: newCompany.settings.location || '',
           addressLine1: newCompany.settings.addressLine1 || '',
           addressLine2: newCompany.settings.addressLine2 || '',
@@ -337,7 +343,7 @@ const App: React.FC = () => {
     }
     
     // Reset Form
-    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, location: '' } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, invoicePrefix: '', invoiceStartNumber: 1000, location: '' } });
     setEditingCompanyId(null);
     setIsBranch(false);
     setSelectedParentId('');
@@ -367,6 +373,8 @@ const App: React.FC = () => {
         tcEnglish: company.settings.tcEnglish || DEFAULT_TC_ENGLISH,
         tcArabic: company.settings.tcArabic || DEFAULT_TC_ARABIC,
         brandColor: company.settings.brandColor || DEFAULT_BRAND_COLOR,
+        invoicePrefix: company.settings.invoicePrefix || '',
+        invoiceStartNumber: company.settings.invoiceStartNumber || 1000,
         location: company.settings.location || ''
       }
     });
@@ -376,7 +384,7 @@ const App: React.FC = () => {
 
   const handleCancelEdit = () => {
     setEditingCompanyId(null);
-    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, location: '' } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, invoicePrefix: '', invoiceStartNumber: 1000, location: '' } });
     setTempShipmentName('');
     setTempShipmentValue('');
     setIsBranch(false);
@@ -386,11 +394,36 @@ const App: React.FC = () => {
   const handleCreateInvoice = () => {
     if (!activeCompany) return;
     
-    const lastInvoiceNo = activeInvoices.length > 0 ? activeInvoices[0].invoiceNo : '1000';
-    const nextNo = (parseInt(lastInvoiceNo) + 1).toString();
+    // Default values if settings are missing
+    const prefix = activeCompany.settings.invoicePrefix || '';
+    const startNum = activeCompany.settings.invoiceStartNumber || 1000;
+
+    let nextNum = startNum;
+
+    // Logic to calculate next invoice number based on existing invoices
+    // We assume the invoices are sorted new-to-old, so index 0 is the latest.
+    if (activeInvoices.length > 0) {
+        const lastInvoiceNo = activeInvoices[0].invoiceNo;
+        // Attempt to extract the number part from the string
+        // If invoice is "HQ-1005", replace "HQ-" with "" -> "1005"
+        const numberPart = lastInvoiceNo.replace(prefix, '');
+        const parsed = parseInt(numberPart, 10);
+
+        if (!isNaN(parsed)) {
+            nextNum = parsed + 1;
+        } else {
+            // Fallback: If stripping prefix failed (maybe old data format), try finding any number at the end
+            const match = lastInvoiceNo.match(/(\d+)$/);
+            if (match) {
+                 nextNum = parseInt(match[1], 10) + 1;
+            }
+        }
+    }
+
+    const nextInvoiceNo = `${prefix}${nextNum}`;
 
     const template: InvoiceData = {
-      invoiceNo: nextNo,
+      invoiceNo: nextInvoiceNo,
       date: formatDate(new Date()),
       shipmentType: activeCompany.settings.shipmentTypes[0]?.name || '',
       status: 'Received', // Default status
@@ -778,7 +811,31 @@ const App: React.FC = () => {
                     />
                 </div>
                 
-                {/* Relocated Location Input */}
+                 {/* Invoice Prefix & Start Number */}
+                 <div className="flex gap-4">
+                     <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Prefix</label>
+                        <input 
+                            type="text" 
+                            placeholder="e.g. HQ-"
+                            className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black font-mono uppercase"
+                            value={newCompany.settings?.invoicePrefix || ''}
+                            onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, invoicePrefix: e.target.value.toUpperCase()}})}
+                        />
+                     </div>
+                     <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Start No.</label>
+                        <input 
+                            type="number" 
+                            placeholder="1000"
+                            className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black font-mono"
+                            value={newCompany.settings?.invoiceStartNumber || ''}
+                            onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, invoiceStartNumber: parseInt(e.target.value)}})}
+                        />
+                     </div>
+                 </div>
+
+                {/* Location Input */}
                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Location / Branch *</label>
                     <input 
@@ -1042,6 +1099,13 @@ const App: React.FC = () => {
                             <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
                          </svg>
                          Dashboard
+                    </button>
+
+                    <button onClick={() => handleNavClick('INVOICES')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'INVOICES' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                         </svg>
+                         Invoices
                     </button>
                     
                     <button onClick={() => handleNavClick('CREATE_INVOICE')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'CREATE_INVOICE' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
@@ -1439,93 +1503,135 @@ const App: React.FC = () => {
               <div className="text-3xl font-bold text-gray-800">3</div>
             </div>
           </div>
-
-          <div className="bg-white rounded shadow overflow-hidden">
-            <div className="px-6 py-4 border-b flex justify-between items-center">
-              <h3 className="font-bold text-gray-700">Invoices List</h3>
-              <span className="text-xs text-gray-500">Showing {filteredInvoices.length} results</span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-gray-50 text-gray-600 text-sm">
-                    <th className="p-4 border-b">Invoice #</th>
-                    <th className="p-4 border-b">Location</th>
-                    <th className="p-4 border-b">Date</th>
-                    <th className="p-4 border-b">Shipper Name</th>
-                    <th className="p-4 border-b">Mobile</th>
-                    <th className="p-4 border-b">Amount</th>
-                    <th className="p-4 border-b">Status</th>
-                    <th className="p-4 border-b">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm text-gray-700">
-                  {filteredInvoices.length > 0 ? (
-                    filteredInvoices.map((inv, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50">
-                        <td className="p-4 border-b font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
-                        <td className="p-4 border-b text-xs text-gray-500">
-                           {inv._locationName}
-                        </td>
-                        <td className="p-4 border-b">{inv.date}</td>
-                        <td className="p-4 border-b font-medium">{inv.shipper.name}</td>
-                        <td className="p-4 border-b text-gray-500">{inv.shipper.tel}</td>
-                        <td className="p-4 border-b font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
-                        <td className="p-4 border-b">
-                            <button 
-                                onClick={() => setViewingHistoryInvoice(inv)}
-                                className={`px-2 py-1 rounded text-xs font-bold hover:opacity-80 transition shadow-sm ${
-                                    inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
-                                    inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
-                                    'bg-gray-100 text-gray-800'
-                                }`}
-                                title="Click to view history"
-                            >
-                                {inv.status || 'Received'}
-                            </button>
-                        </td>
-                        <td className="p-4 border-b">
-                          <div className="flex items-center gap-2">
-                             <button 
-                                onClick={() => handleEditInvoice(inv)}
-                                className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50 transition"
-                                title="Edit"
-                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                  <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                </svg>
-                             </button>
-                             <button 
-                                onClick={() => {
-                                  setCurrentInvoice(inv);
-                                  setView('PREVIEW_INVOICE');
-                                }} 
-                                className="text-gray-600 hover:text-gray-800 p-1 rounded hover:bg-gray-100 transition"
-                                title="Print / View"
-                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                  <path fillRule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clipRule="evenodd" />
-                                </svg>
-                             </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={8} className="p-8 text-center text-gray-500">
-                        No invoices found matching your criteria.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </main>
       </div>
     );
   }
+
+  if (view === 'INVOICES' && activeCompany) {
+      return (
+        <div className="min-h-screen bg-gray-50">
+          {renderHeader()}
+          {renderSidebar()}
+          {renderHistoryModal()} 
+  
+          <main className="max-w-7xl mx-auto p-4 md:p-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+              <h2 className="text-2xl font-bold text-gray-800">Invoices</h2>
+              <div className="flex gap-2 w-full md:w-auto">
+                   <button 
+                    onClick={() => {
+                        setSelectedInvoiceNos([]);
+                        setView('MODIFY_STATUS');
+                    }}
+                    className="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 flex items-center gap-2 justify-center flex-1 md:flex-none"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M17.414 2.586a2 2 0 00-2.828 0L7 9.414v2.586h2.586l7.586-7.586a2 2 0 000-2.828z" />
+                      <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
+                    </svg>
+                    Modify Status
+                  </button>
+                  <button 
+                    onClick={handleCreateInvoice}
+                    className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 justify-center flex-1 md:flex-none"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                    </svg>
+                    New Invoice
+                  </button>
+              </div>
+            </div>
+  
+            {renderFilterBar()}
+  
+            <div className="bg-white rounded shadow overflow-hidden">
+              <div className="px-6 py-4 border-b flex justify-between items-center">
+                <h3 className="font-bold text-gray-700">Invoices List</h3>
+                <span className="text-xs text-gray-500">Showing {filteredInvoices.length} results</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-600 text-sm">
+                      <th className="p-4 border-b">Invoice #</th>
+                      <th className="p-4 border-b">Location</th>
+                      <th className="p-4 border-b">Date</th>
+                      <th className="p-4 border-b">Shipper Name</th>
+                      <th className="p-4 border-b">Mobile</th>
+                      <th className="p-4 border-b">Amount</th>
+                      <th className="p-4 border-b">Status</th>
+                      <th className="p-4 border-b">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-sm text-gray-700">
+                    {filteredInvoices.length > 0 ? (
+                      filteredInvoices.map((inv, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="p-4 border-b font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
+                          <td className="p-4 border-b text-xs text-gray-500">
+                             {inv._locationName}
+                          </td>
+                          <td className="p-4 border-b">{inv.date}</td>
+                          <td className="p-4 border-b font-medium">{inv.shipper.name}</td>
+                          <td className="p-4 border-b text-gray-500">{inv.shipper.tel}</td>
+                          <td className="p-4 border-b font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                          <td className="p-4 border-b">
+                              <button 
+                                  onClick={() => setViewingHistoryInvoice(inv)}
+                                  className={`px-2 py-1 rounded text-xs font-bold hover:opacity-80 transition shadow-sm ${
+                                      inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+                                      inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
+                                      'bg-gray-100 text-gray-800'
+                                  }`}
+                                  title="Click to view history"
+                              >
+                                  {inv.status || 'Received'}
+                              </button>
+                          </td>
+                          <td className="p-4 border-b">
+                            <div className="flex items-center gap-2">
+                               <button 
+                                  onClick={() => handleEditInvoice(inv)}
+                                  className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50 transition"
+                                  title="Edit"
+                               >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                  </svg>
+                               </button>
+                               <button 
+                                  onClick={() => {
+                                    setCurrentInvoice(inv);
+                                    setView('PREVIEW_INVOICE');
+                                  }} 
+                                  className="text-gray-600 hover:text-gray-800 p-1 rounded hover:bg-gray-100 transition"
+                                  title="Print / View"
+                               >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clipRule="evenodd" />
+                                  </svg>
+                               </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={8} className="p-8 text-center text-gray-500">
+                          No invoices found matching your criteria.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
 
   if (view === 'CREATE_INVOICE' && currentInvoice) {
     return (

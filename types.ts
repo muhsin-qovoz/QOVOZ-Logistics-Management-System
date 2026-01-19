@@ -57,7 +57,7 @@ export interface InvoiceData {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT';
 
 export interface ShipmentType {
   name: string;
@@ -67,6 +67,8 @@ export interface ShipmentType {
 export interface AppSettings {
   companyName: string;
   companyArabicName: string;
+  invoicePrefix?: string; // New field for invoice prefix
+  invoiceStartNumber?: number; // New field for starting number
   location?: string; // New separate location field
   addressLine1: string;
   addressLine2: string;
