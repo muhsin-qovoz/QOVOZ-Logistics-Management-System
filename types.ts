@@ -62,6 +62,26 @@ export interface InvoiceData {
   };
 }
 
+export interface SavedCustomer {
+  shipper: {
+    name: string;
+    idNo: string;
+    tel: string;
+    vatnos: string;
+  };
+  consignee: {
+    name: string;
+    address: string;
+    post: string;
+    pin: string;
+    country: string;
+    district: string;
+    state: string;
+    tel: string;
+    tel2: string;
+  };
+}
+
 export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL';
 
 export interface ShipmentType {

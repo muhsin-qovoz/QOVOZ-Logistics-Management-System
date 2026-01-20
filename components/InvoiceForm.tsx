@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { InvoiceData, InvoiceItem, ShipmentType, ItemMaster } from '../types';
+import { InvoiceData, InvoiceItem, ShipmentType, ItemMaster, SavedCustomer } from '../types';
 import { extractInvoiceData, fileToGenerativePart } from '../services/geminiService';
 
 interface InvoiceFormProps {
@@ -11,9 +11,10 @@ interface InvoiceFormProps {
   history?: InvoiceData[];
   isVatEnabled: boolean;
   savedItems?: ItemMaster[];
+  savedCustomers?: SavedCustomer[];
 }
 
-const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCancel, shipmentTypes, history = [], isVatEnabled, savedItems = [] }) => {
+const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCancel, shipmentTypes, history = [], isVatEnabled, savedItems = [], savedCustomers = [] }) => {
   // Ensure at least one item exists
   const ensureItems = (items: InvoiceItem[]) => {
       if (!items || items.length === 0) {
@@ -56,16 +57,46 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
   const fileInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLUListElement>(null);
 
-  // Derive unique customers from history for autocomplete
+  // Derive unique customers from history AND savedCustomers for autocomplete
   const uniqueCustomers = useMemo(() => {
       const map = new Map<string, InvoiceData>();
+      
+      // 1. Add Saved Customers first (Prioritized)
+      // We map SavedCustomer to InvoiceData structure (mocking missing fields)
+      savedCustomers.forEach(sc => {
+          if (sc.shipper.name) {
+              const key = sc.shipper.name.trim().toLowerCase();
+              map.set(key, {
+                  invoiceNo: 'SAVED',
+                  date: '',
+                  shipmentType: '',
+                  status: 'Received',
+                  cargoItems: [],
+                  financials: { total: 0, billCharges: 0, vat: 0, vatAmount: 0, netTotal: 0 },
+                  shipper: {
+                      ...sc.shipper,
+                      pcs: 0,
+                      weight: 0
+                  },
+                  consignee: {
+                      ...sc.consignee
+                  }
+              });
+          }
+      });
+
+      // 2. Add History Customers (if not already present from Saved List)
       history.forEach(inv => {
-          if (inv.shipper.name && !map.has(inv.shipper.name.trim().toLowerCase())) {
-              map.set(inv.shipper.name.trim().toLowerCase(), inv);
+          if (inv.shipper.name) {
+              const key = inv.shipper.name.trim().toLowerCase();
+              // If we already have a saved version, DO NOT overwrite it with historical data
+              if (!map.has(key)) {
+                  map.set(key, inv);
+              }
           }
       });
       return Array.from(map.values());
-  }, [history]);
+  }, [history, savedCustomers]);
 
   // Handle clicking outside suggestions to close them
   useEffect(() => {
@@ -359,9 +390,12 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
             <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl flex flex-col max-h-[90vh]">
                 <div className="p-6 border-b">
                     <h3 className="text-xl font-bold text-blue-900">Autofill Customer Details</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                        Selected Customer: <span className="font-semibold text-gray-800">{selectedHistoryItem.shipper.name}</span>
-                    </p>
+                    <div className="text-sm text-gray-600 mt-1 flex justify-between items-center">
+                        <p>Selected Customer: <span className="font-semibold text-gray-800">{selectedHistoryItem.shipper.name}</span></p>
+                        {selectedHistoryItem.invoiceNo === 'SAVED' && (
+                            <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs font-bold">Saved Contact</span>
+                        )}
+                    </div>
                 </div>
                 
                 <div className="p-6 overflow-y-auto">
@@ -549,7 +583,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
         </div>
 
         {/* Shipper */}
-        <div className="border p-4 rounded bg-red-50 border-red-100 order-3 md:order-2">
+        <div className="border p-4 rounded bg-red-50 border-red-100 order-2 md:order-2">
           <h3 className="font-bold text-red-900 mb-3 border-b border-red-200 pb-1">Shipper Details</h3>
           <div className="space-y-2">
             <div className="relative">
@@ -571,7 +605,10 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                                 onClick={() => handleSuggestionClick(customer)}
                                 className="px-3 py-2 text-sm hover:bg-blue-100 cursor-pointer border-b last:border-0"
                             >
-                                <div className="font-bold text-gray-800">{customer.shipper.name}</div>
+                                <div className="font-bold text-gray-800">
+                                    {customer.shipper.name}
+                                    {customer.invoiceNo === 'SAVED' && <span className="ml-2 text-green-600 text-xs">(Saved)</span>}
+                                </div>
                                 <div className="text-xs text-gray-500">ID: {customer.shipper.idNo} | {customer.consignee.country}</div>
                             </li>
                         ))}
@@ -626,7 +663,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
         </div>
 
         {/* Consignee */}
-        <div className="border p-4 rounded bg-blue-50 border-blue-100 order-2 md:order-3">
+        <div className="border p-4 rounded bg-blue-50 border-blue-100 order-3 md:order-3">
           <h3 className="font-bold text-blue-900 mb-3 border-b border-blue-200 pb-1">Consignee Details</h3>
           <div className="space-y-2">
             <div>
