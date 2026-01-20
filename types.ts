@@ -6,6 +6,11 @@ export interface InvoiceItem {
   qty: number;
 }
 
+export interface ItemMaster {
+  id: string;
+  name: string;
+}
+
 export type ShipmentStatus = 
   | 'Received'
   | 'Departed from Branch'
@@ -57,7 +62,7 @@ export interface InvoiceData {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL';
 
 export interface ShipmentType {
   name: string;

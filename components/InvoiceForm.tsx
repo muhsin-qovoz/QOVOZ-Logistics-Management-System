@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { InvoiceData, InvoiceItem, ShipmentType } from '../types';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { InvoiceData, InvoiceItem, ShipmentType, ItemMaster } from '../types';
 import { extractInvoiceData, fileToGenerativePart } from '../services/geminiService';
 
 interface InvoiceFormProps {
@@ -10,9 +10,10 @@ interface InvoiceFormProps {
   shipmentTypes: ShipmentType[];
   history?: InvoiceData[];
   isVatEnabled: boolean;
+  savedItems?: ItemMaster[];
 }
 
-const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCancel, shipmentTypes, history = [], isVatEnabled }) => {
+const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCancel, shipmentTypes, history = [], isVatEnabled, savedItems = [] }) => {
   // Ensure at least one item exists
   const ensureItems = (items: InvoiceItem[]) => {
       if (!items || items.length === 0) {
@@ -20,7 +21,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
               slNo: 1,
               description: '',
               boxNo: 'B1',
-              qty: 1
+              qty: 0 // Changed default to 0 so it appears empty
           }];
       }
       return items;
@@ -33,13 +34,54 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
   });
   
   const [isProcessing, setIsProcessing] = useState(false);
-  const [matchCandidate, setMatchCandidate] = useState<InvoiceData | null>(null);
   const [shouldFocusNewRow, setShouldFocusNewRow] = useState(false);
   
   // State to control the "Expanded" look of the Shipment Type dropdown
   const [isShipmentListOpen, setIsShipmentListOpen] = useState(true);
 
+  // --- Autocomplete & Modal State ---
+  const [suggestions, setSuggestions] = useState<InvoiceData[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showAutofillModal, setShowAutofillModal] = useState(false);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<InvoiceData | null>(null);
+  
+  // Item Autocomplete State
+  const [activeItemRow, setActiveItemRow] = useState<number | null>(null);
+  const [itemSuggestions, setItemSuggestions] = useState<ItemMaster[]>([]);
+  
+  // Checkbox states for the modal
+  const [applyShipper, setApplyShipper] = useState(true);
+  const [applyConsignee, setApplyConsignee] = useState(true);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const suggestionsRef = useRef<HTMLUListElement>(null);
+
+  // Derive unique customers from history for autocomplete
+  const uniqueCustomers = useMemo(() => {
+      const map = new Map<string, InvoiceData>();
+      history.forEach(inv => {
+          if (inv.shipper.name && !map.has(inv.shipper.name.trim().toLowerCase())) {
+              map.set(inv.shipper.name.trim().toLowerCase(), inv);
+          }
+      });
+      return Array.from(map.values());
+  }, [history]);
+
+  // Handle clicking outside suggestions to close them
+  useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+          if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node)) {
+              setShowSuggestions(false);
+          }
+          // Also close item suggestions if clicked outside
+          const target = event.target as HTMLElement;
+          if (!target.closest('.item-suggestion-box')) {
+             setActiveItemRow(null);
+          }
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Auto-focus new row item
   useEffect(() => {
@@ -84,6 +126,49 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       ...prev,
       shipper: { ...prev.shipper, [field]: value }
     }));
+
+    if (field === 'name') {
+        const strVal = String(value);
+        if (strVal.length > 0) {
+            const matches = uniqueCustomers.filter(c => 
+                c.shipper.name.toLowerCase().includes(strVal.toLowerCase())
+            );
+            setSuggestions(matches);
+            setShowSuggestions(matches.length > 0);
+        } else {
+            setShowSuggestions(false);
+        }
+    }
+  };
+
+  const handleSuggestionClick = (customer: InvoiceData) => {
+      setSelectedHistoryItem(customer);
+      setApplyShipper(true);
+      setApplyConsignee(true);
+      setShowAutofillModal(true);
+      setShowSuggestions(false);
+  };
+
+  const handleAutofillConfirm = () => {
+      if (selectedHistoryItem) {
+          setData(prev => ({
+              ...prev,
+              shipper: applyShipper ? {
+                  ...prev.shipper,
+                  name: selectedHistoryItem.shipper.name,
+                  idNo: selectedHistoryItem.shipper.idNo,
+                  tel: selectedHistoryItem.shipper.tel,
+                  vatnos: selectedHistoryItem.shipper.vatnos || prev.shipper.vatnos
+              } : prev.shipper,
+              consignee: applyConsignee ? {
+                  ...selectedHistoryItem.consignee
+              } : prev.consignee
+          }));
+      }
+      setShowAutofillModal(false);
+      setSelectedHistoryItem(null);
+      // Focus on the first item description field (item box) after selection
+      focusField('row-0-desc');
   };
 
   const handleConsigneeChange = (field: string, value: string) => {
@@ -93,49 +178,12 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
     }));
   };
 
-  const handleCheckHistory = (type: 'NAME' | 'ID' | 'MOBILE', value: string) => {
-      if (!value) return;
-      const normalizedValue = value.trim().toLowerCase();
-      
-      const found = history.find(inv => {
-          if (type === 'NAME') return inv.shipper.name.toLowerCase() === normalizedValue;
-          if (type === 'ID') return inv.shipper.idNo === normalizedValue;
-          if (type === 'MOBILE') return inv.shipper.tel === normalizedValue;
-          return false;
-      });
-
-      if (found) {
-          setMatchCandidate(found);
-      }
-  };
-
-  const applyAutoFill = () => {
-      if (!matchCandidate) return;
-
-      setData(prev => ({
-          ...prev,
-          shipper: {
-              ...prev.shipper,
-              name: matchCandidate.shipper.name,
-              idNo: matchCandidate.shipper.idNo,
-              tel: matchCandidate.shipper.tel,
-              vatnos: matchCandidate.shipper.vatnos || prev.shipper.vatnos
-          },
-          consignee: {
-              ...matchCandidate.consignee
-          }
-      }));
-      setMatchCandidate(null);
-      // After auto-fill, focus on Items
-      focusField('row-0-desc');
-  };
-
   const addItem = () => {
     const newItem: InvoiceItem = {
       slNo: data.cargoItems.length + 1,
       description: '',
       boxNo: 'B1', 
-      qty: 1
+      qty: 0 // Default to 0 so it shows as empty field
     };
     setData(prev => ({ ...prev, cargoItems: [...prev.cargoItems, newItem] }));
     setShouldFocusNewRow(true);
@@ -145,6 +193,27 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
     const newItems = [...data.cargoItems];
     newItems[index] = { ...newItems[index], [field]: value };
     setData(prev => ({ ...prev, cargoItems: newItems }));
+
+    if (field === 'description') {
+        const strVal = String(value).toUpperCase();
+        if (savedItems.length > 0) {
+            const matches = savedItems.filter(i => i.name.includes(strVal));
+            // Only show if there is input and matches, OR if input is empty showing all might be too much but lets show if they match
+            if (strVal && matches.length > 0) {
+                setItemSuggestions(matches);
+                setActiveItemRow(index);
+            } else {
+                setActiveItemRow(null);
+            }
+        }
+    }
+  };
+
+  const handleSelectSavedItem = (index: number, name: string) => {
+      updateItem(index, 'description', name);
+      setActiveItemRow(null);
+      // Optional: focus next field
+      focusField(`row-${index}-box`);
   };
 
   const removeItem = (index: number) => {
@@ -155,7 +224,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
           if (reindexed.length === 0) {
               return {
                   ...prev,
-                  cargoItems: [{ slNo: 1, description: '', boxNo: 'B1', qty: 1 }]
+                  cargoItems: [{ slNo: 1, description: '', boxNo: 'B1', qty: 0 }]
               };
           }
           return { ...prev, cargoItems: reindexed };
@@ -183,13 +252,26 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
 
   // Handle navigation for continuous entry in items
   const handleItemKeyDown = (e: React.KeyboardEvent, idx: number, field: keyof InvoiceItem) => {
+      // Logic for Quantity Field: Only allow digits and navigation keys
+      if (field === 'qty') {
+           // Allow: Backspace, Delete, Tab, Escape, Enter, Arrows
+           const allowedKeys = ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+           if (!allowedKeys.includes(e.key) && !/^\d$/.test(e.key)) {
+                e.preventDefault();
+           }
+      }
+
       if (e.key === 'Enter' || e.key === 'Tab') {
           const isLastRow = idx === data.cargoItems.length - 1;
           
           if (field === 'description') {
                if (e.key === 'Enter') {
                    e.preventDefault();
-                   focusField(`row-${idx}-box`);
+                   if (activeItemRow === idx && itemSuggestions.length > 0) {
+                       handleSelectSavedItem(idx, itemSuggestions[0].name);
+                   } else {
+                       focusField(`row-${idx}-box`);
+                   }
                }
           } else if (field === 'boxNo') {
               if (e.key === 'Enter') {
@@ -197,17 +279,20 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                    focusField(`row-${idx}-qty`);
                }
           } else if (field === 'qty') {
-               if (isLastRow) {
-                   if (!e.shiftKey) { 
-                        e.preventDefault();
-                        addItem();
-                   }
-               } else {
-                   if (e.key === 'Enter') {
-                       e.preventDefault();
-                       focusField(`row-${idx + 1}-desc`);
-                   }
+               if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (isLastRow) {
+                        // Strict validation: Only add row if Quantity is >= 1
+                        if (data.cargoItems[idx].qty >= 1) {
+                            addItem();
+                        }
+                    } else {
+                        focusField(`row-${idx + 1}-desc`);
+                    }
                }
+               // Allow Tab to move to next field naturally or add item if needed, 
+               // but strictly per request "upon pressing Enter", we leave Tab default behavior or handle similarly.
+               // We will let Tab behave normally (move focus to delete button or next element).
           }
       }
   };
@@ -266,7 +351,120 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
   const openSelectClass = "absolute top-[1.3rem] left-0 w-full z-50 shadow-xl border-blue-500 max-h-60 overflow-y-auto bg-white text-black";
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-lg max-w-4xl mx-auto my-8">
+    <div className="bg-white p-6 rounded-lg shadow-lg max-w-4xl mx-auto my-8 relative">
+      
+      {/* Autofill Modal */}
+      {showAutofillModal && selectedHistoryItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] animate-fade-in p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl flex flex-col max-h-[90vh]">
+                <div className="p-6 border-b">
+                    <h3 className="text-xl font-bold text-blue-900">Autofill Customer Details</h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                        Selected Customer: <span className="font-semibold text-gray-800">{selectedHistoryItem.shipper.name}</span>
+                    </p>
+                </div>
+                
+                <div className="p-6 overflow-y-auto">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Shipper Section */}
+                        <div className={`border rounded-lg p-4 transition-colors ${applyShipper ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-200' : 'bg-gray-50 border-gray-200 opacity-75'}`}>
+                            <label className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    checked={applyShipper} 
+                                    onChange={(e) => setApplyShipper(e.target.checked)}
+                                    className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
+                                />
+                                <span className="font-bold text-lg text-gray-800">Shipper Details</span>
+                            </label>
+                            <div className="space-y-2 text-sm text-gray-700">
+                                <div className="grid grid-cols-[80px_1fr]">
+                                    <span className="font-semibold text-gray-500">Name:</span>
+                                    <span>{selectedHistoryItem.shipper.name}</span>
+                                </div>
+                                <div className="grid grid-cols-[80px_1fr]">
+                                    <span className="font-semibold text-gray-500">ID No:</span>
+                                    <span>{selectedHistoryItem.shipper.idNo}</span>
+                                </div>
+                                <div className="grid grid-cols-[80px_1fr]">
+                                    <span className="font-semibold text-gray-500">Mobile:</span>
+                                    <span>{selectedHistoryItem.shipper.tel}</span>
+                                </div>
+                                <div className="grid grid-cols-[80px_1fr]">
+                                    <span className="font-semibold text-gray-500">VAT No:</span>
+                                    <span>{selectedHistoryItem.shipper.vatnos || '-'}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Consignee Section */}
+                        <div className={`border rounded-lg p-4 transition-colors ${applyConsignee ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-200' : 'bg-gray-50 border-gray-200 opacity-75'}`}>
+                            <label className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    checked={applyConsignee} 
+                                    onChange={(e) => setApplyConsignee(e.target.checked)}
+                                    className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
+                                />
+                                <span className="font-bold text-lg text-gray-800">Consignee Details</span>
+                            </label>
+                            <div className="space-y-2 text-sm text-gray-700">
+                                <div className="grid grid-cols-[80px_1fr]">
+                                    <span className="font-semibold text-gray-500">Name:</span>
+                                    <span>{selectedHistoryItem.consignee.name}</span>
+                                </div>
+                                <div className="grid grid-cols-[80px_1fr]">
+                                    <span className="font-semibold text-gray-500">Address:</span>
+                                    <span>{selectedHistoryItem.consignee.address}</span>
+                                </div>
+                                <div className="grid grid-cols-[80px_1fr]">
+                                    <span className="font-semibold text-gray-500">Location:</span>
+                                    <span>
+                                        {[
+                                            selectedHistoryItem.consignee.post,
+                                            selectedHistoryItem.consignee.district,
+                                            selectedHistoryItem.consignee.state,
+                                            selectedHistoryItem.consignee.country
+                                        ].filter(Boolean).join(', ')}
+                                    </span>
+                                </div>
+                                 <div className="grid grid-cols-[80px_1fr]">
+                                    <span className="font-semibold text-gray-500">Pin:</span>
+                                    <span>{selectedHistoryItem.consignee.pin}</span>
+                                </div>
+                                <div className="grid grid-cols-[80px_1fr]">
+                                    <span className="font-semibold text-gray-500">Mobile:</span>
+                                    <span>{selectedHistoryItem.consignee.tel}</span>
+                                </div>
+                                {selectedHistoryItem.consignee.tel2 && (
+                                  <div className="grid grid-cols-[80px_1fr]">
+                                      <span className="font-semibold text-gray-500">Mobile 2:</span>
+                                      <span>{selectedHistoryItem.consignee.tel2}</span>
+                                  </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-6 border-t bg-gray-50 rounded-b-lg flex justify-end gap-3">
+                    <button 
+                        onClick={() => setShowAutofillModal(false)}
+                        className="px-6 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handleAutofillConfirm}
+                        className="px-8 py-2.5 bg-blue-900 text-white font-bold rounded hover:bg-blue-800 shadow transition-colors"
+                    >
+                        Apply Selected Details
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">New Invoice Details</h2>
         <div className="flex gap-2">
@@ -295,36 +493,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
             />
         </div>
       </div>
-
-      {matchCandidate && (
-          <div className="mb-6 bg-blue-50 border border-blue-200 p-4 rounded-md flex flex-col md:flex-row justify-between items-center gap-4 animate-fade-in">
-              <div>
-                  <div className="flex items-center gap-2 text-blue-800 font-bold">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                      Previous Record Found
-                  </div>
-                  <div className="text-sm text-blue-700 mt-1">
-                      Shipper: <b>{matchCandidate.shipper.name}</b> &rarr; Consignee: <b>{matchCandidate.consignee.name}</b>
-                  </div>
-              </div>
-              <div className="flex gap-3">
-                  <button 
-                      onClick={() => setMatchCandidate(null)}
-                      className="px-4 py-1 text-sm text-blue-600 hover:bg-blue-100 rounded"
-                  >
-                      Dismiss
-                  </button>
-                  <button 
-                      onClick={applyAutoFill}
-                      className="px-4 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded font-bold shadow-sm"
-                  >
-                      Autofill All Details
-                  </button>
-              </div>
-          </div>
-      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Meta Info */}
@@ -384,16 +552,31 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
         <div className="border p-4 rounded bg-red-50 border-red-100 order-3 md:order-2">
           <h3 className="font-bold text-red-900 mb-3 border-b border-red-200 pb-1">Shipper Details</h3>
           <div className="space-y-2">
-            <div>
+            <div className="relative">
                 <label className="text-xs text-gray-600">Name</label>
                 <input 
                     id="shipper-name"
                     className={inputClass} 
                     value={data.shipper.name} 
+                    autoComplete="off"
                     onChange={e => handleShipperChange('name', e.target.value)}
-                    onBlur={(e) => handleCheckHistory('NAME', e.target.value)}
                     onKeyDown={(e) => handleEnter(e, 'shipper-id')}
                 />
+                {/* Autocomplete Dropdown */}
+                {showSuggestions && (
+                    <ul ref={suggestionsRef} className="absolute z-50 w-full bg-white border border-gray-300 rounded shadow-lg max-h-40 overflow-y-auto top-full mt-1">
+                        {suggestions.map((customer, idx) => (
+                            <li 
+                                key={idx}
+                                onClick={() => handleSuggestionClick(customer)}
+                                className="px-3 py-2 text-sm hover:bg-blue-100 cursor-pointer border-b last:border-0"
+                            >
+                                <div className="font-bold text-gray-800">{customer.shipper.name}</div>
+                                <div className="text-xs text-gray-500">ID: {customer.shipper.idNo} | {customer.consignee.country}</div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
             </div>
             <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -403,7 +586,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                         className={inputClass} 
                         value={data.shipper.idNo} 
                         onChange={e => handleShipperChange('idNo', e.target.value)}
-                        onBlur={(e) => handleCheckHistory('ID', e.target.value)}
                         onKeyDown={(e) => handleEnter(e, 'shipper-mobile')}
                     />
                 </div>
@@ -414,7 +596,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                         className={inputClass} 
                         value={data.shipper.tel} 
                         onChange={e => handleShipperChange('tel', e.target.value)}
-                        onBlur={(e) => handleCheckHistory('MOBILE', e.target.value)}
                         onKeyDown={(e) => handleEnter(e, 'shipper-vat')}
                     />
                 </div>
@@ -518,14 +699,28 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
               <tbody>
                   {data.cargoItems.map((item, idx) => (
                       <tr key={idx}>
-                          <td className="border p-1">
+                          <td className="border p-1 relative">
                               <input 
                                 id={`row-${idx}-desc`}
                                 className={inputClass} 
                                 value={item.description} 
+                                autoComplete="off"
                                 onChange={e => updateItem(idx, 'description', e.target.value)} 
                                 onKeyDown={e => handleItemKeyDown(e, idx, 'description')}
                               />
+                              {activeItemRow === idx && itemSuggestions.length > 0 && (
+                                  <ul className="absolute z-50 left-0 w-full bg-white border border-gray-300 rounded shadow-lg max-h-40 overflow-y-auto top-full mt-1 item-suggestion-box">
+                                      {itemSuggestions.map((s, sIdx) => (
+                                          <li 
+                                            key={s.id} 
+                                            className="px-2 py-1 hover:bg-blue-100 cursor-pointer text-xs"
+                                            onClick={() => handleSelectSavedItem(idx, s.name)}
+                                          >
+                                              {s.name}
+                                          </li>
+                                      ))}
+                                  </ul>
+                              )}
                           </td>
                           <td className="border p-1">
                               <input 
@@ -540,9 +735,10 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                               <input 
                                 id={`row-${idx}-qty`}
                                 type="number" 
+                                min="0"
                                 className={`${inputClass} text-center`} 
-                                value={item.qty} 
-                                onChange={e => updateItem(idx, 'qty', Number(e.target.value))} 
+                                value={item.qty === 0 ? '' : item.qty} 
+                                onChange={e => updateItem(idx, 'qty', e.target.value === '' ? 0 : parseFloat(e.target.value))} 
                                 onKeyDown={e => handleItemKeyDown(e, idx, 'qty')}
                               />
                           </td>

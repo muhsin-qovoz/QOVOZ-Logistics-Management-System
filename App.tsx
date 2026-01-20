@@ -24,6 +24,18 @@ type DashboardInvoice = InvoiceData & {
     _isHeadOffice: boolean;
 };
 
+// Aggregated Customer Type
+type AggregatedCustomer = {
+    key: string;
+    name: string;
+    idNo: string;
+    mobile: string;
+    vatNo: string;
+    location: string; 
+    companyId: string; // Used for filtering
+    totalShipments: number;
+};
+
 // Modal Component for Status History
 const StatusHistoryModal = ({ invoice, onClose }: { invoice: InvoiceData, onClose: () => void }) => {
     if (!invoice) return null;
@@ -95,6 +107,11 @@ const App: React.FC = () => {
   
   // Status History Modal State
   const [viewingHistoryInvoice, setViewingHistoryInvoice] = useState<InvoiceData | null>(null);
+
+  // Customer Management State
+  const [selectedCustomer, setSelectedCustomer] = useState<AggregatedCustomer | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState<AggregatedCustomer | null>(null);
+  const [editCustomerForm, setEditCustomerForm] = useState({ name: '', mobile: '', idNo: '' });
 
   // Bulk Status Update State
   const [selectedInvoiceNos, setSelectedInvoiceNos] = useState<string[]>([]);
@@ -226,6 +243,9 @@ const App: React.FC = () => {
       
       // Reset search query when changing views for better UX
       setSearchQuery('');
+      
+      // Reset selections
+      setSelectedCustomer(null);
 
       // Reset selections if moving away from bulk edit
       if (newView !== 'MODIFY_STATUS') {
@@ -537,6 +557,55 @@ const App: React.FC = () => {
       alert("Status updated successfully!");
       setSelectedInvoiceNos([]); // Clear selection
   };
+  
+  // Customer Edit Logic
+  const handleEditCustomerClick = (e: React.MouseEvent, customer: AggregatedCustomer) => {
+      e.stopPropagation(); // Prevent row click
+      setEditingCustomer(customer);
+      setEditCustomerForm({
+          name: customer.name,
+          mobile: customer.mobile,
+          idNo: customer.idNo
+      });
+  };
+
+  const handleSaveCustomerDetails = () => {
+      if(!editingCustomer) return;
+
+      if(!window.confirm(`This will update the details for ${editingCustomer.totalShipments} invoices belonging to this customer. Continue?`)) {
+          return;
+      }
+
+      setCompanies(prev => prev.map(company => {
+          // Only update companies that might contain this customer (technically just the one from companyId, but we check matching logic)
+           if (company.id !== editingCustomer.companyId) return company;
+
+           const updatedInvoices = company.invoices.map(inv => {
+                // Match logic: Same as aggregation
+                const shipper = inv.shipper;
+                const identityKey = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
+                const key = `${identityKey}_${company.id}`;
+                
+                if (key === editingCustomer.key) {
+                    return {
+                        ...inv,
+                        shipper: {
+                            ...inv.shipper,
+                            name: editCustomerForm.name,
+                            tel: editCustomerForm.mobile,
+                            idNo: editCustomerForm.idNo
+                        }
+                    };
+                }
+                return inv;
+           });
+
+           return { ...company, invoices: updatedInvoices };
+      }));
+
+      setEditingCustomer(null);
+      alert("Customer details updated successfully.");
+  };
 
 
   // --- Filtering & Stats ---
@@ -641,6 +710,62 @@ const App: React.FC = () => {
               invoice={viewingHistoryInvoice} 
               onClose={() => setViewingHistoryInvoice(null)} 
           />
+      )
+  );
+
+  const renderEditCustomerModal = () => (
+      editingCustomer && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] animate-fade-in p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
+                <div className="p-6 border-b">
+                    <h3 className="text-xl font-bold text-gray-800">Edit Customer Details</h3>
+                    <p className="text-xs text-gray-500 mt-1">Updates will apply to all <strong>{editingCustomer.totalShipments}</strong> linked invoices.</p>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
+                        <input 
+                            type="text" 
+                            className="w-full border p-2 rounded bg-gray-100"
+                            value={editCustomerForm.name}
+                            onChange={e => setEditCustomerForm({...editCustomerForm, name: e.target.value})}
+                        />
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
+                        <input 
+                            type="text" 
+                            className="w-full border p-2 rounded bg-gray-100"
+                            value={editCustomerForm.mobile}
+                            onChange={e => setEditCustomerForm({...editCustomerForm, mobile: e.target.value})}
+                        />
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">ID Number</label>
+                        <input 
+                            type="text" 
+                            className="w-full border p-2 rounded bg-gray-100"
+                            value={editCustomerForm.idNo}
+                            onChange={e => setEditCustomerForm({...editCustomerForm, idNo: e.target.value})}
+                        />
+                    </div>
+                </div>
+                <div className="p-6 border-t bg-gray-50 rounded-b-lg flex justify-end gap-3">
+                    <button 
+                        onClick={() => setEditingCustomer(null)}
+                        className="px-4 py-2 text-gray-700 font-medium hover:bg-gray-200 rounded transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handleSaveCustomerDetails}
+                        className="px-4 py-2 bg-blue-900 text-white font-bold rounded hover:bg-blue-800 shadow transition-colors"
+                    >
+                        Save Changes
+                    </button>
+                </div>
+            </div>
+          </div>
       )
   );
 
@@ -1276,17 +1401,6 @@ const App: React.FC = () => {
     }
 
     // 3. Extract Unique Customers (Shippers)
-    // Define a type for aggregated customer
-    type AggregatedCustomer = {
-        key: string;
-        name: string;
-        idNo: string;
-        mobile: string;
-        vatNo: string;
-        location: string; 
-        totalShipments: number;
-    };
-    
     const customersMap = new Map<string, AggregatedCustomer>();
 
     relevantInvoices.forEach(inv => {
@@ -1307,7 +1421,8 @@ const App: React.FC = () => {
                 idNo: shipper.idNo,
                 mobile: shipper.tel,
                 vatNo: shipper.vatnos,
-                location: inv._locationName, // Store single location
+                location: inv._locationName, 
+                companyId: inv._companyId,
                 totalShipments: 0
             });
         }
@@ -1337,6 +1452,7 @@ const App: React.FC = () => {
         <div className="min-h-screen bg-gray-50">
              {renderHeader()}
              {renderSidebar()}
+             {renderEditCustomerModal()}
              <main className="max-w-7xl mx-auto p-4 md:p-6">
                 <div className="flex items-center gap-4 mb-6">
                      <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
@@ -1362,23 +1478,40 @@ const App: React.FC = () => {
                                     <th className="p-4 border-b">Customer Name</th>
                                     <th className="p-4 border-b">ID No</th>
                                     <th className="p-4 border-b">Mobile</th>
-                                    <th className="p-4 border-b">VAT No</th>
                                     <th className="p-4 border-b">Branch</th>
-                                    <th className="p-4 border-b text-center">Total Shipments</th>
+                                    <th className="p-4 border-b text-center">Shipments</th>
+                                    <th className="p-4 border-b text-center">Action</th>
                                 </tr>
                             </thead>
                             <tbody className="text-sm text-gray-700">
                                 {customers.length > 0 ? (
                                     customers.map((cust) => (
-                                        <tr key={cust.key} className="hover:bg-gray-50 border-b last:border-0">
+                                        <tr 
+                                            key={cust.key} 
+                                            onClick={() => {
+                                                setSelectedCustomer(cust);
+                                                setView('CUSTOMER_DETAIL');
+                                            }}
+                                            className="hover:bg-blue-50 border-b last:border-0 cursor-pointer transition-colors"
+                                        >
                                             <td className="p-4 font-bold text-blue-900">{cust.name}</td>
                                             <td className="p-4 font-mono">{cust.idNo || '-'}</td>
                                             <td className="p-4 text-gray-600">{cust.mobile || '-'}</td>
-                                            <td className="p-4 text-gray-600">{cust.vatNo || '-'}</td>
                                             <td className="p-4 text-xs font-bold text-gray-500">
                                                 {cust.location}
                                             </td>
                                             <td className="p-4 text-center font-bold">{cust.totalShipments}</td>
+                                            <td className="p-4 text-center">
+                                                <button 
+                                                    onClick={(e) => handleEditCustomerClick(e, cust)}
+                                                    className="text-blue-600 hover:text-blue-800 p-2 rounded hover:bg-blue-100 transition"
+                                                    title="Edit Customer Details"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                    </svg>
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))
                                 ) : (
@@ -1393,6 +1526,108 @@ const App: React.FC = () => {
              </main>
         </div>
     )
+  };
+
+  const renderCustomerDetail = () => {
+    if (!activeCompany || !selectedCustomer) return null;
+
+    // Filter invoices matching this specific customer key
+    const customerInvoices = allNetworkInvoices.filter(inv => {
+        const shipper = inv.shipper;
+        const identityKey = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
+        const key = `${identityKey}_${inv._companyId}`;
+        return key === selectedCustomer.key;
+    });
+
+    // Sort by date (newest first)
+    customerInvoices.sort((a, b) => new Date(parseDateStr(b.date)).getTime() - new Date(parseDateStr(a.date)).getTime());
+
+    const totalSpent = customerInvoices.reduce((acc, curr) => acc + curr.financials.netTotal, 0);
+
+    return (
+        <div className="min-h-screen bg-gray-50">
+             {renderHeader()}
+             {renderSidebar()}
+             <main className="max-w-7xl mx-auto p-4 md:p-6">
+                <div className="flex items-center gap-4 mb-6">
+                     <button onClick={() => setView('CUSTOMERS')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                        &larr; Back to Customers
+                    </button>
+                     <h2 className="text-2xl font-bold text-gray-800">Customer Details</h2>
+                </div>
+
+                <div className="bg-white p-6 rounded shadow mb-6 border-l-4 border-blue-900 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <h3 className="text-3xl font-bold text-blue-900">{selectedCustomer.name}</h3>
+                        <div className="mt-2 text-gray-600 space-y-1">
+                             <p><span className="font-bold">Mobile:</span> {selectedCustomer.mobile}</p>
+                             <p><span className="font-bold">ID No:</span> {selectedCustomer.idNo}</p>
+                             <p><span className="font-bold">Branch:</span> {selectedCustomer.location}</p>
+                        </div>
+                    </div>
+                    <div className="flex flex-col justify-center items-start md:items-end">
+                        <div className="text-right">
+                            <p className="text-sm text-gray-500">Total Spent</p>
+                            <p className="text-3xl font-bold text-green-700">SAR {totalSpent.toFixed(2)}</p>
+                        </div>
+                         <div className="text-right mt-2">
+                            <p className="text-sm text-gray-500">Total Shipments</p>
+                            <p className="text-xl font-bold text-gray-800">{customerInvoices.length}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded shadow overflow-hidden">
+                    <div className="px-6 py-4 border-b">
+                        <h3 className="font-bold text-gray-700">Shipment History</h3>
+                    </div>
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 text-gray-600 text-sm">
+                                    <th className="p-4 border-b">Invoice #</th>
+                                    <th className="p-4 border-b">Date</th>
+                                    <th className="p-4 border-b">Consignee</th>
+                                    <th className="p-4 border-b">Items</th>
+                                    <th className="p-4 border-b">Amount</th>
+                                    <th className="p-4 border-b">Status</th>
+                                    <th className="p-4 border-b text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-sm text-gray-700">
+                                {customerInvoices.map((inv, idx) => (
+                                    <tr key={idx} className="hover:bg-gray-50 border-b last:border-0">
+                                        <td className="p-4 font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
+                                        <td className="p-4 text-gray-600">{inv.date}</td>
+                                        <td className="p-4">{inv.consignee.name}</td>
+                                        <td className="p-4 text-xs text-gray-500">{inv.cargoItems.length} items ({inv.shipper.weight}kg)</td>
+                                        <td className="p-4 font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                                        <td className="p-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                    inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+                                                    inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
+                                                    'bg-gray-100 text-gray-800'
+                                                }`}>
+                                                {inv.status || 'Received'}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 text-center">
+                                            <button 
+                                                onClick={() => handleEditInvoice(inv)}
+                                                className="text-blue-600 hover:text-blue-800 text-sm font-medium underline"
+                                            >
+                                                View/Edit
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+             </main>
+        </div>
+    );
   };
 
   const renderBranchManagement = () => {
@@ -1610,6 +1845,10 @@ const App: React.FC = () => {
   
   if (view === 'CUSTOMERS' && activeCompany) {
       return renderCustomers();
+  }
+
+  if (view === 'CUSTOMER_DETAIL' && activeCompany) {
+      return renderCustomerDetail();
   }
 
   if (view === 'DASHBOARD' && activeCompany) {
@@ -1856,7 +2095,7 @@ const App: React.FC = () => {
             onSubmit={handleInvoiceSubmit}
             onCancel={() => setView('DASHBOARD')}
             shipmentTypes={activeCompany?.settings.shipmentTypes || []}
-            history={activeInvoices}
+            history={allNetworkInvoices}
             isVatEnabled={activeCompany?.settings.isVatEnabled || false} 
           />
       </div>
