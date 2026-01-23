@@ -4,6 +4,7 @@ export interface InvoiceItem {
   description: string;
   boxNo: string;
   qty: number;
+  weight?: number; // Added to track individual box weight
 }
 
 export interface ItemMaster {

@@ -22,10 +22,11 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
               slNo: 1,
               description: '',
               boxNo: 'B1',
-              qty: 0 // Changed default to 0 so it appears empty
+              qty: 0,
+              weight: 0
           }];
       }
-      return items;
+      return items.map(i => ({...i, weight: i.weight || 0}));
   };
 
   const [data, setData] = useState<InvoiceData>({
@@ -50,19 +51,22 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
   const [activeItemRow, setActiveItemRow] = useState<number | null>(null);
   const [itemSuggestions, setItemSuggestions] = useState<ItemMaster[]>([]);
   
+  // Box Closing / Weight Modal State
+  const [showWeightModal, setShowWeightModal] = useState(false);
+  const [tempBoxWeight, setTempBoxWeight] = useState('');
+  const [boxToCloseIndex, setBoxToCloseIndex] = useState<number | null>(null);
+  
   // Checkbox states for the modal
   const [applyShipper, setApplyShipper] = useState(true);
   const [applyConsignee, setApplyConsignee] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLUListElement>(null);
+  const weightInputRef = useRef<HTMLInputElement>(null);
 
   // Derive unique customers from history AND savedCustomers for autocomplete
   const uniqueCustomers = useMemo(() => {
       const map = new Map<string, InvoiceData>();
-      
-      // 1. Add Saved Customers first (Prioritized)
-      // We map SavedCustomer to InvoiceData structure (mocking missing fields)
       savedCustomers.forEach(sc => {
           if (sc.shipper.name) {
               const key = sc.shipper.name.trim().toLowerCase();
@@ -85,11 +89,9 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
           }
       });
 
-      // 2. Add History Customers (if not already present from Saved List)
       history.forEach(inv => {
           if (inv.shipper.name) {
               const key = inv.shipper.name.trim().toLowerCase();
-              // If we already have a saved version, DO NOT overwrite it with historical data
               if (!map.has(key)) {
                   map.set(key, inv);
               }
@@ -104,7 +106,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
           if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node)) {
               setShowSuggestions(false);
           }
-          // Also close item suggestions if clicked outside
           const target = event.target as HTMLElement;
           if (!target.closest('.item-suggestion-box')) {
              setActiveItemRow(null);
@@ -124,6 +125,32 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
     }
   }, [data.cargoItems, shouldFocusNewRow]);
 
+  // Focus weight input when modal opens
+  useEffect(() => {
+      if (showWeightModal && weightInputRef.current) {
+          setTimeout(() => weightInputRef.current?.focus(), 50);
+      }
+  }, [showWeightModal]);
+
+  // Recalculate total weight and pcs whenever items change
+  useEffect(() => {
+      const calculatedWeight = data.cargoItems.reduce((sum, item) => sum + (item.weight || 0), 0);
+      
+      // Calculate unique boxes (Pcs)
+      const uniqueBoxes = new Set(data.cargoItems.map(i => i.boxNo)).size;
+
+      if (calculatedWeight !== data.shipper.weight || uniqueBoxes !== data.shipper.pcs) {
+          setData(prev => ({
+              ...prev,
+              shipper: { 
+                  ...prev.shipper, 
+                  weight: calculatedWeight,
+                  pcs: uniqueBoxes
+              }
+          }));
+      }
+  }, [data.cargoItems]);
+
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -133,21 +160,19 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       const base64 = await fileToGenerativePart(file);
       const extractedData = await extractInvoiceData(base64);
       
-      // Merge extracted data with current data
       setData(prev => ({
         ...prev,
         ...extractedData,
         shipper: { ...prev.shipper, ...extractedData.shipper },
         consignee: { ...prev.consignee, ...extractedData.consignee },
         financials: { ...prev.financials, ...extractedData.financials },
-        cargoItems: extractedData.cargoItems || prev.cargoItems
+        cargoItems: ensureItems(extractedData.cargoItems || prev.cargoItems)
       }));
     } catch (error) {
       alert("Failed to extract data. Please try again or enter manually.");
       console.error(error);
     } finally {
       setIsProcessing(false);
-      // Reset input
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -198,7 +223,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       }
       setShowAutofillModal(false);
       setSelectedHistoryItem(null);
-      // Focus on the first item description field (item box) after selection
       focusField('row-0-desc');
   };
 
@@ -209,16 +233,88 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
     }));
   };
 
-  const addItem = () => {
-    const newItem: InvoiceItem = {
-      slNo: data.cargoItems.length + 1,
-      description: '',
-      boxNo: 'B1', 
-      qty: 0 // Default to 0 so it shows as empty field
-    };
-    setData(prev => ({ ...prev, cargoItems: [...prev.cargoItems, newItem] }));
-    setShouldFocusNewRow(true);
+  // --- Box Logic ---
+
+  const getNextBoxNo = (current: string) => {
+      const match = current.match(/^([a-zA-Z]*)(\d+)$/);
+      if (match) {
+          const prefix = match[1];
+          const num = parseInt(match[2], 10);
+          return `${prefix}${num + 1}`;
+      }
+      return current; // Fallback if pattern doesn't match
   };
+
+  const handleCloseBoxRequest = (index: number) => {
+      // Validate: Don't close if qty is 0 or empty description? (Optional)
+      // For now, just open modal
+      setBoxToCloseIndex(index);
+      setTempBoxWeight('');
+      setShowWeightModal(true);
+  };
+
+  const handleWeightAction = (createNew: boolean) => {
+      if (boxToCloseIndex === null) return;
+
+      const weightVal = parseFloat(tempBoxWeight);
+      if (isNaN(weightVal) || weightVal < 0) {
+          alert("Please enter a valid weight");
+          return;
+      }
+
+      setData(prev => {
+          // 1. Update current item weight
+          const updatedItems = [...prev.cargoItems];
+          updatedItems[boxToCloseIndex] = {
+              ...updatedItems[boxToCloseIndex],
+              weight: weightVal
+          };
+
+          // 2. Add new item automatically with next box number IF requested
+          if (createNew) {
+              const currentBoxNo = updatedItems[boxToCloseIndex].boxNo;
+              const newItem: InvoiceItem = {
+                  slNo: updatedItems.length + 1,
+                  description: '', // Empty description for next item
+                  boxNo: getNextBoxNo(currentBoxNo),
+                  qty: 0,
+                  weight: 0
+              };
+              return { ...prev, cargoItems: [...updatedItems, newItem] };
+          }
+
+          return { ...prev, cargoItems: updatedItems };
+      });
+
+      setShowWeightModal(false);
+      setBoxToCloseIndex(null);
+      setTempBoxWeight('');
+      
+      if (createNew) {
+        setShouldFocusNewRow(true); // Will focus the description of the new row
+      }
+  };
+  
+  const addItemRow = (currentIndex: number) => {
+        setData(prev => {
+            const currentItems = prev.cargoItems;
+            const currentItem = currentItems[currentIndex];
+            
+            const newItem: InvoiceItem = {
+                slNo: currentItems.length + 1,
+                description: '',
+                boxNo: currentItem.boxNo, // Keep same box number
+                qty: 0,
+                weight: 0
+            };
+            
+            return {
+                ...prev,
+                cargoItems: [...currentItems, newItem]
+            };
+        });
+        setShouldFocusNewRow(true);
+    };
 
   const updateItem = (index: number, field: keyof InvoiceItem, value: string | number) => {
     const newItems = [...data.cargoItems];
@@ -229,7 +325,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
         const strVal = String(value).toUpperCase();
         if (savedItems.length > 0) {
             const matches = savedItems.filter(i => i.name.includes(strVal));
-            // Only show if there is input and matches, OR if input is empty showing all might be too much but lets show if they match
             if (strVal && matches.length > 0) {
                 setItemSuggestions(matches);
                 setActiveItemRow(index);
@@ -243,7 +338,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
   const handleSelectSavedItem = (index: number, name: string) => {
       updateItem(index, 'description', name);
       setActiveItemRow(null);
-      // Optional: focus next field
       focusField(`row-${index}-box`);
   };
 
@@ -255,7 +349,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
           if (reindexed.length === 0) {
               return {
                   ...prev,
-                  cargoItems: [{ slNo: 1, description: '', boxNo: 'B1', qty: 0 }]
+                  cargoItems: [{ slNo: 1, description: '', boxNo: 'B1', qty: 0, weight: 0 }]
               };
           }
           return { ...prev, cargoItems: reindexed };
@@ -264,7 +358,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
 
   // Navigation Helpers
   const focusField = (id: string) => {
-      // Small timeout to allow render cycle if needed, though usually not strictly necessary for direct moves
       setTimeout(() => {
         const el = document.getElementById(id);
         if (el) {
@@ -283,47 +376,37 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
 
   // Handle navigation for continuous entry in items
   const handleItemKeyDown = (e: React.KeyboardEvent, idx: number, field: keyof InvoiceItem) => {
-      // Logic for Quantity Field: Only allow digits and navigation keys
+      // Shortcut to Close Box: Alt + Enter
+      if (e.key === 'Enter' && e.altKey) {
+          e.preventDefault();
+          handleCloseBoxRequest(idx);
+          return;
+      }
+
+      // Logic for Quantity Field
       if (field === 'qty') {
-           // Allow: Backspace, Delete, Tab, Escape, Enter, Arrows
            const allowedKeys = ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
-           if (!allowedKeys.includes(e.key) && !/^\d$/.test(e.key)) {
+           if (!allowedKeys.includes(e.key) && !/^\d$/.test(e.key) && !e.altKey) {
                 e.preventDefault();
            }
       }
 
-      if (e.key === 'Enter' || e.key === 'Tab') {
-          const isLastRow = idx === data.cargoItems.length - 1;
-          
+      if (e.key === 'Enter') {
           if (field === 'description') {
-               if (e.key === 'Enter') {
-                   e.preventDefault();
-                   if (activeItemRow === idx && itemSuggestions.length > 0) {
-                       handleSelectSavedItem(idx, itemSuggestions[0].name);
-                   } else {
-                       focusField(`row-${idx}-box`);
-                   }
+               e.preventDefault();
+               if (activeItemRow === idx && itemSuggestions.length > 0) {
+                   handleSelectSavedItem(idx, itemSuggestions[0].name);
+               } else {
+                   focusField(`row-${idx}-box`);
                }
           } else if (field === 'boxNo') {
-              if (e.key === 'Enter') {
-                   e.preventDefault();
-                   focusField(`row-${idx}-qty`);
-               }
-          } else if (field === 'qty') {
-               if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (isLastRow) {
-                        // Strict validation: Only add row if Quantity is >= 1
-                        if (data.cargoItems[idx].qty >= 1) {
-                            addItem();
-                        }
-                    } else {
-                        focusField(`row-${idx + 1}-desc`);
-                    }
-               }
-               // Allow Tab to move to next field naturally or add item if needed, 
-               // but strictly per request "upon pressing Enter", we leave Tab default behavior or handle similarly.
-               // We will let Tab behave normally (move focus to delete button or next element).
+               e.preventDefault();
+               focusField(`row-${idx}-qty`);
+          } 
+          else if (field === 'qty') {
+              e.preventDefault(); 
+              // Enter alone adds a new row with same box number
+              addItemRow(idx);
           }
       }
   };
@@ -384,7 +467,64 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
   return (
     <div className="bg-white p-6 rounded-lg shadow-lg max-w-4xl mx-auto my-8 relative">
       
-      {/* Autofill Modal */}
+      {/* Weight Input Modal */}
+      {showWeightModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70]">
+              <div className="bg-white p-6 rounded-lg shadow-2xl w-96 animate-fade-in border-t-4 border-blue-600">
+                  <h3 className="text-lg font-bold text-gray-800 mb-4">Enter Box Weight</h3>
+                  <div className="mb-4">
+                      <label className="block text-sm text-gray-600 mb-1">Weight (KG)</label>
+                      <input 
+                          ref={weightInputRef}
+                          type="number" 
+                          step="0.01"
+                          className="w-full border-2 border-blue-500 rounded p-2 text-xl font-bold text-center focus:outline-none"
+                          value={tempBoxWeight}
+                          onChange={e => setTempBoxWeight(e.target.value)}
+                          onKeyDown={(e) => {
+                             if(e.key === 'Enter') {
+                                 e.preventDefault();
+                                 if (e.altKey) {
+                                     handleWeightAction(false); // Close Box
+                                 } else {
+                                     handleWeightAction(true); // Confirm & New
+                                 }
+                             }
+                          }}
+                          placeholder="0.00"
+                      />
+                  </div>
+                  <div className="flex justify-between items-center gap-2 mt-6">
+                      <button 
+                          type="button" 
+                          onClick={() => setShowWeightModal(false)}
+                          className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded text-sm font-medium"
+                      >
+                          Cancel
+                      </button>
+                      <div className="flex gap-2">
+                        <button 
+                            type="button"
+                            onClick={() => handleWeightAction(false)}
+                            className="px-4 py-2 bg-gray-200 text-gray-800 font-bold rounded hover:bg-gray-300 text-sm"
+                        >
+                            Close Box
+                        </button>
+                        <button 
+                            type="button"
+                            onClick={() => handleWeightAction(true)}
+                            className="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-700 shadow text-sm"
+                        >
+                            Confirm & New
+                        </button>
+                      </div>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2 text-center">Shortcuts: Enter (New) | Alt+Enter (Close)</p>
+              </div>
+          </div>
+      )}
+
+      {/* Autofill Modal (Existing) */}
       {showAutofillModal && selectedHistoryItem && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] animate-fade-in p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl flex flex-col max-h-[90vh]">
@@ -399,8 +539,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                 </div>
                 
                 <div className="p-6 overflow-y-auto">
+                    {/* ... (Same modal content as before) ... */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Shipper Section */}
                         <div className={`border rounded-lg p-4 transition-colors ${applyShipper ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-200' : 'bg-gray-50 border-gray-200 opacity-75'}`}>
                             <label className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 cursor-pointer">
                                 <input 
@@ -412,26 +552,10 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                                 <span className="font-bold text-lg text-gray-800">Shipper Details</span>
                             </label>
                             <div className="space-y-2 text-sm text-gray-700">
-                                <div className="grid grid-cols-[80px_1fr]">
-                                    <span className="font-semibold text-gray-500">Name:</span>
-                                    <span>{selectedHistoryItem.shipper.name}</span>
-                                </div>
-                                <div className="grid grid-cols-[80px_1fr]">
-                                    <span className="font-semibold text-gray-500">ID No:</span>
-                                    <span>{selectedHistoryItem.shipper.idNo}</span>
-                                </div>
-                                <div className="grid grid-cols-[80px_1fr]">
-                                    <span className="font-semibold text-gray-500">Mobile:</span>
-                                    <span>{selectedHistoryItem.shipper.tel}</span>
-                                </div>
-                                <div className="grid grid-cols-[80px_1fr]">
-                                    <span className="font-semibold text-gray-500">VAT No:</span>
-                                    <span>{selectedHistoryItem.shipper.vatnos || '-'}</span>
-                                </div>
+                                <div className="grid grid-cols-[80px_1fr]"><span className="font-semibold text-gray-500">Name:</span><span>{selectedHistoryItem.shipper.name}</span></div>
+                                <div className="grid grid-cols-[80px_1fr]"><span className="font-semibold text-gray-500">Mobile:</span><span>{selectedHistoryItem.shipper.tel}</span></div>
                             </div>
                         </div>
-
-                        {/* Consignee Section */}
                         <div className={`border rounded-lg p-4 transition-colors ${applyConsignee ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-200' : 'bg-gray-50 border-gray-200 opacity-75'}`}>
                             <label className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 cursor-pointer">
                                 <input 
@@ -443,39 +567,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                                 <span className="font-bold text-lg text-gray-800">Consignee Details</span>
                             </label>
                             <div className="space-y-2 text-sm text-gray-700">
-                                <div className="grid grid-cols-[80px_1fr]">
-                                    <span className="font-semibold text-gray-500">Name:</span>
-                                    <span>{selectedHistoryItem.consignee.name}</span>
-                                </div>
-                                <div className="grid grid-cols-[80px_1fr]">
-                                    <span className="font-semibold text-gray-500">Address:</span>
-                                    <span>{selectedHistoryItem.consignee.address}</span>
-                                </div>
-                                <div className="grid grid-cols-[80px_1fr]">
-                                    <span className="font-semibold text-gray-500">Location:</span>
-                                    <span>
-                                        {[
-                                            selectedHistoryItem.consignee.post,
-                                            selectedHistoryItem.consignee.district,
-                                            selectedHistoryItem.consignee.state,
-                                            selectedHistoryItem.consignee.country
-                                        ].filter(Boolean).join(', ')}
-                                    </span>
-                                </div>
-                                 <div className="grid grid-cols-[80px_1fr]">
-                                    <span className="font-semibold text-gray-500">Pin:</span>
-                                    <span>{selectedHistoryItem.consignee.pin}</span>
-                                </div>
-                                <div className="grid grid-cols-[80px_1fr]">
-                                    <span className="font-semibold text-gray-500">Mobile:</span>
-                                    <span>{selectedHistoryItem.consignee.tel}</span>
-                                </div>
-                                {selectedHistoryItem.consignee.tel2 && (
-                                  <div className="grid grid-cols-[80px_1fr]">
-                                      <span className="font-semibold text-gray-500">Mobile 2:</span>
-                                      <span>{selectedHistoryItem.consignee.tel2}</span>
-                                  </div>
-                                )}
+                                <div className="grid grid-cols-[80px_1fr]"><span className="font-semibold text-gray-500">Name:</span><span>{selectedHistoryItem.consignee.name}</span></div>
+                                <div className="grid grid-cols-[80px_1fr]"><span className="font-semibold text-gray-500">Mobile:</span><span>{selectedHistoryItem.consignee.tel}</span></div>
                             </div>
                         </div>
                     </div>
@@ -541,7 +634,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
             </div>
             <div className="relative">
                 <label className="block text-xs font-bold text-gray-600">Shipment Type</label>
-                {/* Spacer to hold the grid height when absolute positioned */}
                 <div className="h-[30px] w-full"></div>
                 <select 
                     id="shipment-type"
@@ -551,18 +643,15 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                     onFocus={() => setIsShipmentListOpen(true)}
                     onBlur={() => setIsShipmentListOpen(false)}
                     onChange={e => {
-                        // Just update value on arrow key / click
                         setData({...data, shipmentType: e.target.value});
                     }} 
                     onClick={() => {
-                        // Click confirms selection
                         if(isShipmentListOpen) {
                             setIsShipmentListOpen(false);
                             focusField('shipper-name');
                         }
                     }}
                     onKeyDown={(e) => {
-                        // Enter or Tab confirms selection
                         if (e.key === 'Enter' || e.key === 'Tab') {
                             e.preventDefault();
                             setIsShipmentListOpen(false);
@@ -596,7 +685,6 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                     onChange={e => handleShipperChange('name', e.target.value)}
                     onKeyDown={(e) => handleEnter(e, 'shipper-id')}
                 />
-                {/* Autocomplete Dropdown */}
                 {showSuggestions && (
                     <ul ref={suggestionsRef} className="absolute z-50 w-full bg-white border border-gray-300 rounded shadow-lg max-h-40 overflow-y-auto top-full mt-1">
                         {suggestions.map((customer, idx) => (
@@ -609,7 +697,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                                     {customer.shipper.name}
                                     {customer.invoiceNo === 'SAVED' && <span className="ml-2 text-green-600 text-xs">(Saved)</span>}
                                 </div>
-                                <div className="text-xs text-gray-500">ID: {customer.shipper.idNo} | {customer.consignee.country}</div>
+                                <div className="text-xs text-gray-500">ID: {customer.shipper.idNo}</div>
                             </li>
                         ))}
                     </ul>
@@ -633,11 +721,10 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                         className={inputClass} 
                         value={data.shipper.tel} 
                         onChange={e => handleShipperChange('tel', e.target.value)}
-                        onKeyDown={(e) => handleEnter(e, 'shipper-vat')}
+                        onKeyDown={(e) => handleEnter(e, 'consignee-name')}
                     />
                 </div>
             </div>
-            
             <div>
                 <label className="text-xs text-gray-600">VAT No</label>
                 <input 
@@ -645,19 +732,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                     className={inputClass} 
                     value={data.shipper.vatnos} 
                     onChange={e => handleShipperChange('vatnos', e.target.value)}
-                    onKeyDown={(e) => handleEnter(e, 'shipper-pcs')}
+                    onKeyDown={(e) => handleEnter(e, 'consignee-name')}
                 />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-                <div>
-                    <label className="text-xs text-gray-600">Pcs</label>
-                    <input id="shipper-pcs" type="number" className={inputClass} value={data.shipper.pcs} onChange={e => handleShipperChange('pcs', Number(e.target.value))} onKeyDown={(e) => handleEnter(e, 'shipper-weight')} />
-                </div>
-                <div>
-                    <label className="text-xs text-gray-600">Weight (KG)</label>
-                    <input id="shipper-weight" type="number" className={inputClass} value={data.shipper.weight} onChange={e => handleShipperChange('weight', Number(e.target.value))} onKeyDown={(e) => handleEnter(e, 'consignee-name')} />
-                </div>
             </div>
           </div>
         </div>
@@ -722,7 +798,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       <div className="mt-6 border p-4 rounded bg-white order-4">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-bold text-gray-600">Cargo Items</h3>
-            <span className="text-xs text-gray-500 italic">Press <strong>Enter</strong> or <strong>Tab</strong> on the last field to add a new row.</span>
+            <span className="text-xs text-gray-500 italic">Shortcut: Use <strong>Alt + Enter</strong> on any field to close box & enter weight.</span>
           </div>
           <table className="w-full text-sm">
               <thead className="bg-gray-100">
@@ -780,21 +856,59 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                               />
                           </td>
                           <td className="border p-1 text-center">
-                              <button onClick={() => removeItem(idx)} className="text-red-500 font-bold">&times;</button>
+                              <button onClick={() => removeItem(idx)} className="text-red-500 font-bold hover:bg-red-100 rounded px-2">&times;</button>
                           </td>
                       </tr>
                   ))}
               </tbody>
           </table>
+          <div className="mt-2 flex justify-center">
+              <button 
+                  onClick={() => handleCloseBoxRequest(data.cargoItems.length - 1)}
+                  className="bg-green-600 text-white px-6 py-2 rounded shadow hover:bg-green-700 font-bold text-sm flex items-center gap-2"
+              >
+                  <span>Close or Add New Box</span>
+                  <span className="bg-green-800 text-xs px-1 rounded">Alt + Enter</span>
+              </button>
+          </div>
       </div>
 
       {/* Financials Manual Override */}
-      <div className="mt-6 border p-4 rounded bg-gray-50 flex flex-col md:flex-row gap-8 justify-end order-5">
-           <div className="flex flex-col items-start gap-1">
-               <button onClick={calculateFinancials} className="text-blue-600 underline text-xs">Auto-Calculate defaults</button>
-               <span className="text-xs text-gray-500 max-w-[200px]">Calculation based on weight * shipment type value + bill charges.</span>
-               {isVatEnabled && <span className="text-xs text-green-600 font-bold">VAT (15%) Enabled</span>}
+      <div className="mt-6 border p-4 rounded bg-gray-50 flex flex-col md:flex-row gap-8 justify-between order-5">
+           <div className="flex flex-col gap-4">
+               {/* Moved Fields: Pcs and Total Weight */}
+               <div className="flex gap-4">
+                    <div>
+                        <label className="block text-sm font-bold text-gray-600 mb-1">Total Pcs</label>
+                        <input 
+                            id="shipper-pcs" 
+                            type="number" 
+                            className="w-32 border p-2 text-sm bg-gray-200 text-gray-700 font-bold rounded focus:outline-none" 
+                            value={data.shipper.pcs} 
+                            readOnly
+                            tabIndex={-1}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-gray-600 mb-1">Total Weight</label>
+                        <input 
+                            id="shipper-weight" 
+                            type="number" 
+                            className="w-32 border p-2 text-sm bg-gray-200 text-gray-700 font-bold rounded focus:outline-none" 
+                            value={data.shipper.weight} 
+                            readOnly 
+                            tabIndex={-1} 
+                        />
+                    </div>
+               </div>
+
+               <div className="flex flex-col items-start gap-1">
+                   <button onClick={calculateFinancials} className="text-blue-600 underline text-xs">Auto-Calculate defaults</button>
+                   <span className="text-xs text-gray-500 max-w-[200px]">Calculation based on total weight * shipment type value + bill charges.</span>
+                   {isVatEnabled && <span className="text-xs text-green-600 font-bold">VAT (15%) Enabled</span>}
+               </div>
            </div>
+           
            <div className="w-full md:w-64 space-y-2">
                <div className="flex justify-between items-center">
                    <label className="text-sm font-bold text-gray-600">Total</label>
