@@ -151,6 +151,26 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       }
   }, [data.cargoItems]);
 
+  // Calculate box weights summary
+  const boxWeightsSummary = useMemo(() => {
+    const weightMap = new Map<string, number>();
+    data.cargoItems.forEach(item => {
+        if (item.boxNo) {
+            const current = weightMap.get(item.boxNo) || 0;
+            weightMap.set(item.boxNo, current + (item.weight || 0));
+        }
+    });
+
+    const summaryParts: string[] = [];
+    weightMap.forEach((weight, boxNo) => {
+        if (weight > 0) {
+            summaryParts.push(`${boxNo}=${parseFloat(weight.toFixed(3))}Kg`);
+        }
+    });
+    
+    return summaryParts.join(', ');
+  }, [data.cargoItems]);
+
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -798,7 +818,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
       <div className="mt-6 border p-4 rounded bg-white order-4">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-bold text-gray-600">Cargo Items</h3>
-            <span className="text-xs text-gray-500 italic">Shortcut: Use <strong>Alt + Enter</strong> on any field to close box & enter weight.</span>
+            <span className="text-xs text-gray-500 italic">Shortcut: Press <strong>Enter</strong> or <strong>Tab</strong> after Qty to add a new row / Press <strong>Alt + Enter</strong> after Qty to close or Add New Box</span>
           </div>
           <table className="w-full text-sm">
               <thead className="bg-gray-100">
@@ -862,7 +882,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                   ))}
               </tbody>
           </table>
-          <div className="mt-2 flex justify-center">
+          <div className="mt-2 flex flex-col items-center justify-center gap-2">
               <button 
                   onClick={() => handleCloseBoxRequest(data.cargoItems.length - 1)}
                   className="bg-green-600 text-white px-6 py-2 rounded shadow hover:bg-green-700 font-bold text-sm flex items-center gap-2"
@@ -870,6 +890,11 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                   <span>Close or Add New Box</span>
                   <span className="bg-green-800 text-xs px-1 rounded">Alt + Enter</span>
               </button>
+              {boxWeightsSummary && (
+                  <div className="text-xs text-blue-800 font-semibold bg-blue-50 px-3 py-1 rounded border border-blue-100 animate-fade-in">
+                      {boxWeightsSummary}
+                  </div>
+              )}
           </div>
       </div>
 

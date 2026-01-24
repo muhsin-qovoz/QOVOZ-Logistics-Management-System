@@ -104,6 +104,9 @@ const App: React.FC = () => {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [currentInvoice, setCurrentInvoice] = useState<InvoiceData | null>(null);
+
+  // Modify Status Specific State
+  const [showSelectedOnly, setShowSelectedOnly] = useState(false);
   
   // Status History Modal State
   const [viewingHistoryInvoice, setViewingHistoryInvoice] = useState<InvoiceData | null>(null);
@@ -250,6 +253,7 @@ const App: React.FC = () => {
       // Reset selections if moving away from bulk edit
       if (newView !== 'MODIFY_STATUS') {
           setSelectedInvoiceNos([]);
+          setShowSelectedOnly(false); // Reset selected only view
       }
       if (newView === 'CREATE_INVOICE') {
           handleCreateInvoice();
@@ -671,8 +675,13 @@ const App: React.FC = () => {
       return true;
     });
 
+    // 4. Modify Status - Selected Only Filter
+    if (view === 'MODIFY_STATUS' && showSelectedOnly) {
+        filtered = filtered.filter(inv => selectedInvoiceNos.includes(inv.invoiceNo));
+    }
+
     return filtered;
-  }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, dateRange, customStart, customEnd]);
+  }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, dateRange, customStart, customEnd, view, showSelectedOnly, selectedInvoiceNos]);
 
   const stats = useMemo(() => {
     const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
@@ -1342,6 +1351,18 @@ const App: React.FC = () => {
                         </option>
                     ))}
                 </select>
+
+                {/* Modify Status - Selected/All Filter */}
+                {view === 'MODIFY_STATUS' && (
+                     <select
+                        className="border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto"
+                        value={showSelectedOnly ? 'SELECTED' : 'ALL'}
+                        onChange={(e) => setShowSelectedOnly(e.target.value === 'SELECTED')}
+                    >
+                        <option value="ALL">All</option>
+                        <option value="SELECTED">Selected ({selectedInvoiceNos.length})</option>
+                    </select>
+                )}
 
                 {/* Hide Date Range Picker in Customers View */}
                 {view !== 'CUSTOMERS' && (
