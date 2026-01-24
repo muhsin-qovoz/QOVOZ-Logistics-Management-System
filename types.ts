@@ -83,7 +83,7 @@ export interface SavedCustomer {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL' | 'FINANCE';
 
 export interface ShipmentType {
   name: string;
@@ -113,6 +113,27 @@ export interface AppSettings {
   tcArabic?: string;
 }
 
+// --- Finance Types ---
+export type TransactionType = 'INCOME' | 'EXPENSE';
+
+export interface FinancialAccount {
+  id: string;
+  name: string;
+  type: 'REVENUE' | 'EXPENSE' | 'ASSET' | 'LIABILITY'; 
+  isSystem?: boolean; // If true, cannot be deleted (e.g., Sales, General Expenses)
+}
+
+export interface FinancialTransaction {
+  id: string;
+  date: string;
+  accountId: string; // which bucket does this belong to
+  amount: number;
+  type: TransactionType;
+  description: string;
+  referenceId?: string; // e.g. Invoice Number
+  timestamp: string;
+}
+
 export interface Company {
   id: string;
   parentId?: string; // ID of the parent company if this is a branch
@@ -126,6 +147,10 @@ export interface Company {
 
   // Data
   invoices: InvoiceData[];
+  
+  // Finance Module
+  financialAccounts: FinancialAccount[];
+  financialTransactions: FinancialTransaction[];
 }
 
 export interface User {
