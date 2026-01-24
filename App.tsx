@@ -1,9 +1,8 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
-import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus } from './types';
+import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction, ItemMaster } from './types';
 import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
-import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR } from './services/dataService';
+import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR, DEFAULT_ACCOUNTS, DEFAULT_ITEMS } from './services/dataService';
 
 const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'Received',
@@ -81,7 +80,11 @@ const App: React.FC = () => {
 
   // Save to local storage whenever companies change
   useEffect(() => {
-    saveStoredCompanies(companies);
+    try {
+        saveStoredCompanies(companies);
+    } catch (e) {
+        console.error("Failed to save companies to storage", e);
+    }
   }, [companies]);
 
   // Session
@@ -119,6 +122,22 @@ const App: React.FC = () => {
   // Bulk Status Update State
   const [selectedInvoiceNos, setSelectedInvoiceNos] = useState<string[]>([]);
   const [bulkStatus, setBulkStatus] = useState<ShipmentStatus>('Received');
+
+  // Finance State
+  const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
+  const [newTransaction, setNewTransaction] = useState<Partial<FinancialTransaction>>({
+      type: 'EXPENSE',
+      amount: 0,
+      description: '',
+      accountId: '',
+      date: new Date().toISOString().split('T')[0],
+      paymentMode: 'CASH'
+  });
+
+  // Items State
+  const [isItemModalOpen, setIsItemModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<ItemMaster | null>(null);
+  const [itemFormName, setItemFormName] = useState('');
 
   // Create/Edit Company Form State
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
@@ -184,6 +203,60 @@ const App: React.FC = () => {
   }, [relatedCompanies]);
 
   const activeInvoices = activeCompany?.invoices || [];
+
+    // --- Customer Aggregation ---
+  const customers = useMemo(() => {
+    const map = new Map<string, AggregatedCustomer>();
+    
+    // Determine source invoices based on location filter
+    let sourceInvoices = allNetworkInvoices;
+    if (dashboardLocationFilter !== 'ALL') {
+        sourceInvoices = sourceInvoices.filter(inv => inv._companyId === dashboardLocationFilter);
+    }
+    
+    sourceInvoices.forEach(inv => {
+        const shipper = inv.shipper;
+        if (!shipper.name) return;
+        
+        // Use a consistent key generation strategy
+        const identityKey = shipper.idNo && shipper.idNo.length > 3 
+            ? `ID:${shipper.idNo}` 
+            : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
+            
+        // Key includes companyId to separate customers by branch
+        const key = `${identityKey}_${inv._companyId}`;
+
+        if (!map.has(key)) {
+            map.set(key, {
+                key,
+                name: shipper.name,
+                idNo: shipper.idNo,
+                mobile: shipper.tel,
+                vatNo: shipper.vatnos,
+                location: inv._locationName,
+                companyId: inv._companyId,
+                totalShipments: 0
+            });
+        }
+        
+        const existing = map.get(key)!;
+        existing.totalShipments++;
+    });
+    
+    let result = Array.from(map.values());
+    
+    // Search filter for customers view
+    if (view === 'CUSTOMERS' && searchQuery) {
+        const q = searchQuery.toLowerCase();
+        result = result.filter(c => 
+            c.name.toLowerCase().includes(q) || 
+            c.mobile.includes(q) || 
+            c.idNo.includes(q)
+        );
+    }
+    
+    return result;
+  }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, view]);
 
   // --- Handlers ---
 
@@ -364,7 +437,10 @@ const App: React.FC = () => {
           tcEnglish: newCompany.settings.tcEnglish || DEFAULT_TC_ENGLISH,
           tcArabic: newCompany.settings.tcArabic || DEFAULT_TC_ARABIC
         },
-        invoices: []
+        invoices: [],
+        financialAccounts: DEFAULT_ACCOUNTS,
+        financialTransactions: [],
+        items: DEFAULT_ITEMS
       };
       setCompanies([...companies, companyToAdd]);
       alert("Company Created Successfully!");
@@ -485,7 +561,36 @@ const App: React.FC = () => {
             foundAndUpdated = true;
             const updatedInvoices = [...c.invoices];
             updatedInvoices[existingIndex] = data;
-            return { ...c, invoices: updatedInvoices };
+
+            // --- AUTO FINANCE LINKING ---
+            // Check if there is already a transaction for this invoice
+            let updatedTransactions = [...(c.financialTransactions || [])];
+            const txIndex = updatedTransactions.findIndex(t => t.referenceId === data.invoiceNo && t.type === 'INCOME');
+            
+            if (txIndex >= 0) {
+                // Update existing transaction
+                updatedTransactions[txIndex] = {
+                    ...updatedTransactions[txIndex],
+                    amount: data.financials.netTotal,
+                    date: new Date().toISOString().split('T')[0], // Update date to today or keep original? For now update to today to reflect edit
+                    paymentMode: data.paymentMode || 'CASH'
+                };
+            } else {
+                // Create new transaction if somehow missing (e.g. data migration issue)
+                updatedTransactions.push({
+                    id: `tx_${data.invoiceNo}_${Date.now()}`,
+                    date: new Date().toISOString().split('T')[0],
+                    timestamp: new Date().toISOString(),
+                    accountId: 'acc_sales', // Default Sales Account
+                    type: 'INCOME',
+                    amount: data.financials.netTotal,
+                    description: `Invoice Generation: ${data.invoiceNo}`,
+                    referenceId: data.invoiceNo,
+                    paymentMode: data.paymentMode || 'CASH'
+                });
+            }
+
+            return { ...c, invoices: updatedInvoices, financialTransactions: updatedTransactions };
         }
         return c;
       });
@@ -498,7 +603,24 @@ const App: React.FC = () => {
       if (activeCompanyId) {
           return prev.map(c => {
               if (c.id === activeCompanyId) {
-                  return { ...c, invoices: [data, ...c.invoices] };
+                  // Create accompanying transaction
+                  const newTx: FinancialTransaction = {
+                      id: `tx_${data.invoiceNo}_${Date.now()}`,
+                      date: new Date().toISOString().split('T')[0],
+                      timestamp: new Date().toISOString(),
+                      accountId: 'acc_sales',
+                      type: 'INCOME',
+                      amount: data.financials.netTotal,
+                      description: `Invoice Generation: ${data.invoiceNo}`,
+                      referenceId: data.invoiceNo,
+                      paymentMode: data.paymentMode || 'CASH'
+                  };
+
+                  return { 
+                      ...c, 
+                      invoices: [data, ...c.invoices],
+                      financialTransactions: [newTx, ...(c.financialTransactions || [])]
+                  };
               }
               return c;
           });
@@ -611,6 +733,78 @@ const App: React.FC = () => {
       alert("Customer details updated successfully.");
   };
 
+  // --- Finance Handlers ---
+  const handleSaveTransaction = () => {
+      if (!newTransaction.amount || !newTransaction.accountId || !newTransaction.description) {
+          alert("Please fill all fields");
+          return;
+      }
+
+      if (!activeCompanyId) return;
+
+      setCompanies(prev => prev.map(c => {
+          if (c.id === activeCompanyId) {
+              const tx: FinancialTransaction = {
+                  id: `tx_manual_${Date.now()}`,
+                  date: newTransaction.date || new Date().toISOString().split('T')[0],
+                  timestamp: new Date().toISOString(),
+                  accountId: newTransaction.accountId!,
+                  amount: parseFloat(newTransaction.amount!.toString()),
+                  type: newTransaction.type as 'INCOME' | 'EXPENSE',
+                  description: newTransaction.description!,
+                  paymentMode: newTransaction.paymentMode || 'CASH'
+              };
+              return { ...c, financialTransactions: [tx, ...(c.financialTransactions || [])] };
+          }
+          return c;
+      }));
+
+      setIsAddTransactionOpen(false);
+      setNewTransaction({ type: 'EXPENSE', amount: 0, description: '', accountId: '', date: new Date().toISOString().split('T')[0], paymentMode: 'CASH' });
+  };
+
+  // --- Item Management Handlers ---
+  const handleSaveItem = () => {
+      if (!itemFormName.trim()) {
+          alert("Item name cannot be empty");
+          return;
+      }
+
+      setCompanies(prev => prev.map(c => {
+          if (c.id === activeCompanyId) {
+              const items = c.items || [];
+              if (editingItem) {
+                  // Edit
+                  const updatedItems = items.map(i => i.id === editingItem.id ? { ...i, name: itemFormName.toUpperCase() } : i);
+                  return { ...c, items: updatedItems };
+              } else {
+                  // Create
+                  const newItem: ItemMaster = {
+                      id: `itm_${Date.now()}`,
+                      name: itemFormName.toUpperCase()
+                  };
+                  return { ...c, items: [...items, newItem] };
+              }
+          }
+          return c;
+      }));
+
+      setIsItemModalOpen(false);
+      setItemFormName('');
+      setEditingItem(null);
+  };
+
+  const handleDeleteItem = (itemId: string) => {
+      if (!window.confirm("Are you sure you want to delete this item?")) return;
+
+      setCompanies(prev => prev.map(c => {
+          if (c.id === activeCompanyId) {
+              return { ...c, items: (c.items || []).filter(i => i.id !== itemId) };
+          }
+          return c;
+      }));
+  };
+
 
   // --- Filtering & Stats ---
 
@@ -686,8 +880,42 @@ const App: React.FC = () => {
   const stats = useMemo(() => {
     const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
     const totalShipments = filteredInvoices.length;
-    return { totalRevenue, totalShipments };
-  }, [filteredInvoices]);
+
+    // Calculate Cash/Bank from transactions associated with the visible companies
+    // filteredInvoices tells us which companies are "active" in the view if filtered by location, 
+    // but filteredInvoices is also filtered by date/search. 
+    // Balances should ignore date range of the dashboard filter (usually).
+    // Balances should respect Location filter.
+
+    let relevantCompanies: Company[] = [];
+    if (dashboardLocationFilter === 'ALL') {
+        relevantCompanies = relatedCompanies;
+    } else {
+        const c = companies.find(co => co.id === dashboardLocationFilter);
+        if (c) relevantCompanies = [c];
+    }
+
+    let cashInHand = 0;
+    let bankBalance = 0;
+
+    relevantCompanies.forEach(comp => {
+        (comp.financialTransactions || []).forEach(tx => {
+             const amt = tx.amount;
+             // Default to CASH if undefined
+             const mode = tx.paymentMode || 'CASH'; 
+             
+             if (tx.type === 'INCOME') {
+                 if (mode === 'BANK') bankBalance += amt;
+                 else cashInHand += amt;
+             } else { // EXPENSE
+                 if (mode === 'BANK') bankBalance -= amt;
+                 else cashInHand -= amt;
+             }
+        });
+    });
+
+    return { totalRevenue, totalShipments, cashInHand, bankBalance };
+  }, [filteredInvoices, dashboardLocationFilter, relatedCompanies, companies]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -777,6 +1005,537 @@ const App: React.FC = () => {
           </div>
       )
   );
+
+  const renderFinanceView = () => {
+    if (!activeCompany) return null;
+
+    // Filter transactions for display
+    const transactions = activeCompany.financialTransactions || [];
+    
+    // Sort transactions date desc
+    transactions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    // Calculate Balances
+    const accountBalances = (activeCompany.financialAccounts || []).map(acc => {
+        const total = transactions
+            .filter(t => t.accountId === acc.id)
+            .reduce((sum, t) => sum + t.amount, 0);
+        return { ...acc, balance: total };
+    });
+
+    const totalRevenue = transactions.filter(t => t.type === 'INCOME').reduce((sum, t) => sum + t.amount, 0);
+    const totalExpense = transactions.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + t.amount, 0);
+    const netProfit = totalRevenue - totalExpense;
+
+    return (
+        <div className="min-h-screen bg-gray-50">
+            {renderHeader()}
+            {renderSidebar()}
+            
+            {/* Add Transaction Modal */}
+            {isAddTransactionOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] animate-fade-in p-4">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+                        <div className="p-4 border-b">
+                            <h3 className="text-xl font-bold text-gray-800">Add Transaction</h3>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Transaction Type</label>
+                                <select 
+                                    className="w-full border p-2 rounded bg-gray-100"
+                                    value={newTransaction.type}
+                                    onChange={e => setNewTransaction({...newTransaction, type: e.target.value as any})}
+                                >
+                                    <option value="EXPENSE">Expense (Money Out)</option>
+                                    <option value="INCOME">Income (Money In)</option>
+                                </select>
+                            </div>
+                             <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Category / Account</label>
+                                <select 
+                                    className="w-full border p-2 rounded bg-gray-100"
+                                    value={newTransaction.accountId}
+                                    onChange={e => setNewTransaction({...newTransaction, accountId: e.target.value})}
+                                >
+                                    <option value="">Select Account</option>
+                                    {(activeCompany.financialAccounts || [])
+                                        .filter(acc => acc.type === (newTransaction.type === 'INCOME' ? 'REVENUE' : 'EXPENSE'))
+                                        .map(acc => (
+                                            <option key={acc.id} value={acc.id}>{acc.name}</option>
+                                        ))
+                                    }
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Mode</label>
+                                <select 
+                                    className="w-full border p-2 rounded bg-gray-100"
+                                    value={newTransaction.paymentMode || 'CASH'}
+                                    onChange={e => setNewTransaction({...newTransaction, paymentMode: e.target.value as 'CASH' | 'BANK'})}
+                                >
+                                    <option value="CASH">Cash</option>
+                                    <option value="BANK">Bank</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                                <input 
+                                    type="number"
+                                    className="w-full border p-2 rounded bg-gray-100"
+                                    value={newTransaction.amount || ''}
+                                    onChange={e => setNewTransaction({...newTransaction, amount: parseFloat(e.target.value)})}
+                                    placeholder="0.00"
+                                />
+                            </div>
+                             <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                                <input 
+                                    type="date"
+                                    className="w-full border p-2 rounded bg-gray-100"
+                                    value={newTransaction.date}
+                                    onChange={e => setNewTransaction({...newTransaction, date: e.target.value})}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                                <input 
+                                    type="text"
+                                    className="w-full border p-2 rounded bg-gray-100"
+                                    value={newTransaction.description}
+                                    onChange={e => setNewTransaction({...newTransaction, description: e.target.value})}
+                                    placeholder="e.g. Fuel for Truck A"
+                                />
+                            </div>
+                        </div>
+                        <div className="p-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
+                            <button 
+                                onClick={() => setIsAddTransactionOpen(false)}
+                                className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleSaveTransaction}
+                                className="px-6 py-2 bg-blue-900 text-white rounded font-bold hover:bg-blue-800"
+                            >
+                                Save Transaction
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <main className="max-w-7xl mx-auto p-4 md:p-6">
+                <div className="flex justify-between items-center mb-6">
+                     <div className="flex items-center gap-4">
+                        <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                            &larr; Back to Dashboard
+                        </button>
+                        <h2 className="text-2xl font-bold text-gray-800">Financial Accounts</h2>
+                     </div>
+                     <button 
+                        onClick={() => setIsAddTransactionOpen(true)}
+                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 shadow font-bold flex items-center gap-2"
+                     >
+                         <span>+</span> New Transaction
+                     </button>
+                </div>
+
+                {/* Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                     <div className="bg-white p-6 rounded shadow-sm border-l-4 border-blue-500">
+                        <div className="text-gray-500 text-sm">Total Revenue (All Time)</div>
+                        <div className="text-3xl font-bold text-gray-800">SAR {totalRevenue.toFixed(2)}</div>
+                    </div>
+                     <div className="bg-white p-6 rounded shadow-sm border-l-4 border-red-500">
+                        <div className="text-gray-500 text-sm">Total Expenses (All Time)</div>
+                        <div className="text-3xl font-bold text-gray-800">SAR {totalExpense.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-white p-6 rounded shadow-sm border-l-4 border-green-500">
+                        <div className="text-gray-500 text-sm">Net Profit</div>
+                        <div className={`text-3xl font-bold ${netProfit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                            SAR {netProfit.toFixed(2)}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Accounts Grid */}
+                <h3 className="font-bold text-gray-700 mb-4">Account Balances</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                    {accountBalances.map(acc => (
+                        <div key={acc.id} className="bg-white p-4 rounded shadow border border-gray-100 flex justify-between items-center">
+                            <div>
+                                <h4 className="font-bold text-gray-800">{acc.name}</h4>
+                                <span className={`text-xs px-2 py-0.5 rounded ${acc.type === 'REVENUE' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{acc.type}</span>
+                            </div>
+                            <div className="text-right">
+                                <span className="block text-xl font-bold text-gray-900">{acc.balance.toFixed(2)}</span>
+                                <span className="text-xs text-gray-400">Total</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Recent Transactions */}
+                <div className="bg-white rounded shadow overflow-hidden">
+                    <div className="px-6 py-4 border-b">
+                        <h3 className="font-bold text-gray-700">Transaction History</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th className="p-4 border-b">Date</th>
+                                    <th className="p-4 border-b">Description</th>
+                                    <th className="p-4 border-b">Account</th>
+                                    <th className="p-4 border-b">Mode</th>
+                                    <th className="p-4 border-b">Ref ID</th>
+                                    <th className="p-4 border-b text-right">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {transactions.length > 0 ? (
+                                    transactions.map(t => {
+                                        const accName = activeCompany.financialAccounts?.find(a => a.id === t.accountId)?.name || 'Unknown';
+                                        return (
+                                            <tr key={t.id} className="hover:bg-gray-50 border-b last:border-0">
+                                                <td className="p-4 text-gray-600">{t.date}</td>
+                                                <td className="p-4 font-medium text-gray-800">{t.description}</td>
+                                                <td className="p-4">
+                                                    <span className="bg-gray-100 px-2 py-1 rounded text-xs text-gray-600">{accName}</span>
+                                                </td>
+                                                <td className="p-4 text-xs">
+                                                    <span className={`px-2 py-1 rounded ${t.paymentMode === 'BANK' ? 'bg-indigo-100 text-indigo-800' : 'bg-green-100 text-green-800'}`}>
+                                                        {t.paymentMode || 'CASH'}
+                                                    </span>
+                                                </td>
+                                                <td className="p-4 font-mono text-xs text-blue-600">{t.referenceId || '-'}</td>
+                                                <td className={`p-4 text-right font-bold ${t.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {t.type === 'INCOME' ? '+' : '-'} {t.amount.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td colSpan={6} className="p-8 text-center text-gray-500">No transactions found.</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    );
+  };
+
+  const renderItems = () => {
+      if (!activeCompany) return null;
+      const items = activeCompany.items || [];
+
+      return (
+          <div className="min-h-screen bg-gray-50">
+              {renderHeader()}
+              {renderSidebar()}
+              
+              {/* Add/Edit Modal */}
+              {isItemModalOpen && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] animate-fade-in p-4">
+                      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
+                          <div className="p-4 border-b">
+                              <h3 className="text-xl font-bold text-gray-800">{editingItem ? 'Edit Item' : 'Add New Item'}</h3>
+                          </div>
+                          <div className="p-6">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
+                              <input 
+                                  type="text" 
+                                  className="w-full border p-2 rounded bg-gray-100 uppercase"
+                                  value={itemFormName}
+                                  onChange={e => setItemFormName(e.target.value)}
+                                  placeholder="e.g. CLOTHES"
+                                  autoFocus
+                              />
+                          </div>
+                          <div className="p-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
+                              <button 
+                                  onClick={() => {
+                                      setIsItemModalOpen(false);
+                                      setItemFormName('');
+                                      setEditingItem(null);
+                                  }}
+                                  className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded"
+                              >
+                                  Cancel
+                              </button>
+                              <button 
+                                  onClick={handleSaveItem}
+                                  className="px-6 py-2 bg-blue-900 text-white rounded font-bold hover:bg-blue-800"
+                              >
+                                  Save Item
+                              </button>
+                          </div>
+                      </div>
+                  </div>
+              )}
+
+              <main className="max-w-7xl mx-auto p-4 md:p-6">
+                  <div className="flex justify-between items-center mb-6">
+                       <div className="flex items-center gap-4">
+                          <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                              &larr; Back to Dashboard
+                          </button>
+                          <h2 className="text-2xl font-bold text-gray-800">Item Master</h2>
+                       </div>
+                       <button 
+                          onClick={() => {
+                              setEditingItem(null);
+                              setItemFormName('');
+                              setIsItemModalOpen(true);
+                          }}
+                          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow font-bold flex items-center gap-2"
+                       >
+                           <span>+</span> Add Item
+                       </button>
+                  </div>
+
+                  <div className="bg-white rounded shadow overflow-hidden">
+                      <div className="px-6 py-4 border-b">
+                          <h3 className="font-bold text-gray-700">Items List ({items.length})</h3>
+                      </div>
+                      <div className="overflow-x-auto">
+                          <table className="w-full text-left text-sm">
+                              <thead className="bg-gray-50 text-gray-600">
+                                  <tr>
+                                      <th className="p-4 border-b">Item Name</th>
+                                      <th className="p-4 border-b text-center w-32">Actions</th>
+                                  </tr>
+                              </thead>
+                              <tbody>
+                                  {items.length > 0 ? (
+                                      items.map(item => (
+                                          <tr key={item.id} className="hover:bg-gray-50 border-b last:border-0">
+                                              <td className="p-4 font-bold text-gray-800">{item.name}</td>
+                                              <td className="p-4 flex justify-center gap-2">
+                                                  <button 
+                                                      onClick={() => {
+                                                          setEditingItem(item);
+                                                          setItemFormName(item.name);
+                                                          setIsItemModalOpen(true);
+                                                      }}
+                                                      className="text-blue-600 hover:bg-blue-50 p-1.5 rounded"
+                                                      title="Edit"
+                                                  >
+                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                      </svg>
+                                                  </button>
+                                                  <button 
+                                                      onClick={() => handleDeleteItem(item.id)}
+                                                      className="text-red-600 hover:bg-red-50 p-1.5 rounded"
+                                                      title="Delete"
+                                                  >
+                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                      </svg>
+                                                  </button>
+                                              </td>
+                                          </tr>
+                                      ))
+                                  ) : (
+                                      <tr><td colSpan={2} className="p-8 text-center text-gray-500">No items found. Add some items to get started.</td></tr>
+                                  )}
+                              </tbody>
+                          </table>
+                      </div>
+                  </div>
+              </main>
+          </div>
+      );
+  };
+
+  const renderCustomers = () => {
+      return (
+        <div className="min-h-screen bg-gray-50">
+            {renderHeader()}
+            {renderSidebar()}
+            {renderEditCustomerModal()}
+            
+            <main className="max-w-7xl mx-auto p-4 md:p-6">
+                 <div className="flex justify-between items-center mb-6">
+                     <div className="flex items-center gap-4">
+                        <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                            &larr; Back to Dashboard
+                        </button>
+                        <h2 className="text-2xl font-bold text-gray-800">Customers Directory</h2>
+                     </div>
+                 </div>
+                 
+                 {renderFilterBar()}
+
+                 <div className="bg-white rounded shadow overflow-hidden">
+                    <div className="px-6 py-4 border-b flex justify-between items-center">
+                        <h3 className="font-bold text-gray-700">Customers List</h3>
+                        <span className="text-xs text-gray-500">{customers.length} Found</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th className="p-4 border-b">Name</th>
+                                    <th className="p-4 border-b">Mobile</th>
+                                    <th className="p-4 border-b">ID No</th>
+                                    <th className="p-4 border-b">Location</th>
+                                    <th className="p-4 border-b text-center">Shipments</th>
+                                    <th className="p-4 border-b text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {customers.length > 0 ? (
+                                    customers.map((cust) => (
+                                        <tr key={cust.key} className="hover:bg-gray-50 border-b last:border-0 cursor-pointer" onClick={() => {
+                                            setSelectedCustomer(cust);
+                                            setView('CUSTOMER_DETAIL');
+                                        }}>
+                                            <td className="p-4 font-bold text-gray-800">{cust.name}</td>
+                                            <td className="p-4 text-gray-600">{cust.mobile}</td>
+                                            <td className="p-4 text-gray-600">{cust.idNo || '-'}</td>
+                                            <td className="p-4 text-xs text-blue-600 bg-blue-50 rounded px-2 w-fit">{cust.location}</td>
+                                            <td className="p-4 text-center font-bold">{cust.totalShipments}</td>
+                                            <td className="p-4 text-right">
+                                                <button 
+                                                    onClick={(e) => handleEditCustomerClick(e, cust)}
+                                                    className="text-blue-600 hover:text-blue-800 font-medium px-3 py-1 hover:bg-blue-100 rounded"
+                                                >
+                                                    Edit
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr><td colSpan={6} className="p-8 text-center text-gray-500">No customers found.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                 </div>
+            </main>
+        </div>
+      );
+  };
+
+  const renderCustomerDetail = () => {
+      if (!selectedCustomer) return null;
+
+      // Find invoices for this customer
+      const customerInvoices = allNetworkInvoices.filter(inv => {
+          if (inv._companyId !== selectedCustomer.companyId) return false;
+          const shipper = inv.shipper;
+          const identityKey = shipper.idNo && shipper.idNo.length > 3 
+            ? `ID:${shipper.idNo}` 
+            : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
+          const key = `${identityKey}_${inv._companyId}`;
+          return key === selectedCustomer.key;
+      });
+
+      // Sort by date desc
+      customerInvoices.sort((a, b) => parseDateStr(b.date).getTime() - parseDateStr(a.date).getTime());
+
+      return (
+        <div className="min-h-screen bg-gray-50">
+            {renderHeader()}
+            {renderSidebar()}
+            
+            <main className="max-w-7xl mx-auto p-4 md:p-6">
+                 <div className="flex justify-between items-center mb-6">
+                     <div className="flex items-center gap-4">
+                        <button onClick={() => setView('CUSTOMERS')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                            &larr; Back to List
+                        </button>
+                        <h2 className="text-2xl font-bold text-gray-800">Customer Profile</h2>
+                     </div>
+                     <button 
+                        onClick={(e) => handleEditCustomerClick(e, selectedCustomer)}
+                        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 font-bold"
+                     >
+                        Edit Details
+                     </button>
+                 </div>
+
+                 <div className="bg-white p-6 rounded shadow mb-6 border-l-4 border-blue-900">
+                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                         <div>
+                             <label className="block text-xs text-gray-500 uppercase font-bold">Name</label>
+                             <div className="text-xl font-bold text-gray-800">{selectedCustomer.name}</div>
+                         </div>
+                         <div>
+                             <label className="block text-xs text-gray-500 uppercase font-bold">Mobile</label>
+                             <div className="text-lg text-gray-800">{selectedCustomer.mobile}</div>
+                         </div>
+                         <div>
+                             <label className="block text-xs text-gray-500 uppercase font-bold">ID Number</label>
+                             <div className="text-lg text-gray-800">{selectedCustomer.idNo || 'N/A'}</div>
+                         </div>
+                          <div>
+                             <label className="block text-xs text-gray-500 uppercase font-bold">Total Shipments</label>
+                             <div className="text-xl font-bold text-blue-900">{customerInvoices.length}</div>
+                         </div>
+                     </div>
+                 </div>
+
+                 <div className="bg-white rounded shadow overflow-hidden">
+                    <div className="px-6 py-4 border-b">
+                        <h3 className="font-bold text-gray-700">Shipment History</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th className="p-4 border-b">Invoice #</th>
+                                    <th className="p-4 border-b">Date</th>
+                                    <th className="p-4 border-b">Consignee</th>
+                                    <th className="p-4 border-b">Status</th>
+                                    <th className="p-4 border-b text-right">Amount</th>
+                                    <th className="p-4 border-b text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {customerInvoices.map((inv, idx) => (
+                                    <tr key={idx} className="hover:bg-gray-50 border-b last:border-0">
+                                        <td className="p-4 font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
+                                        <td className="p-4 text-gray-600">{inv.date}</td>
+                                        <td className="p-4 font-medium">{inv.consignee.name}</td>
+                                        <td className="p-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                inv.status === 'Delivered' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                                            }`}>
+                                                {inv.status}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 text-right font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                                        <td className="p-4 text-center">
+                                            <button 
+                                                onClick={() => {
+                                                    setCurrentInvoice(inv);
+                                                    setView('PREVIEW_INVOICE');
+                                                }}
+                                                className="text-blue-600 hover:underline"
+                                            >
+                                                View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                 </div>
+            </main>
+        </div>
+      );
+  };
 
   if (view === 'LOGIN') {
     return (
@@ -1262,12 +2021,27 @@ const App: React.FC = () => {
                         Customers
                     </button>
 
+                    <button onClick={() => handleNavClick('ITEMS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'ITEMS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
+                        </svg>
+                        Items
+                    </button>
+
                      <button onClick={() => handleNavClick('MODIFY_STATUS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'MODIFY_STATUS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                             <path d="M17.414 2.586a2 2 0 00-2.828 0L7 9.414v2.586h2.586l7.586-7.586a2 2 0 000-2.828z" />
                             <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
                          </svg>
                          Modify Status
+                    </button>
+
+                    <button onClick={() => handleNavClick('FINANCE')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'FINANCE' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.312-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.312.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                        </svg>
+                        Financial Accounts
                     </button>
 
                     <button onClick={() => handleNavClick('BRANCH_MANAGEMENT')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'BRANCH_MANAGEMENT' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
@@ -1365,19 +2139,34 @@ const App: React.FC = () => {
                 )}
 
                 {/* Hide Date Range Picker in Customers View */}
-                {view !== 'CUSTOMERS' && (
+                {view !== 'CUSTOMERS' && view !== 'ITEMS' && (
                     <>
-                        <select 
-                        className="border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto"
-                        value={dateRange}
-                        onChange={(e) => setDateRange(e.target.value as any)}
-                        >
-                        <option value="TODAY">Today</option>
-                        <option value="WEEK">This Week</option>
-                        <option value="MONTH">This Month</option>
-                        <option value="LAST_MONTH">Last Month</option>
-                        <option value="CUSTOM">Custom Date</option>
-                        </select>
+                        <div className="bg-gray-200 p-1 rounded-lg flex items-center gap-1 self-start sm:self-auto overflow-x-auto max-w-full">
+                            {(['TODAY', 'WEEK', 'MONTH', 'LAST_MONTH', 'CUSTOM'] as const).map(r => {
+                                let label = '';
+                                switch(r) {
+                                    case 'TODAY': label = 'Today'; break;
+                                    case 'WEEK': label = 'Week'; break;
+                                    case 'MONTH': label = 'Month'; break;
+                                    case 'LAST_MONTH': label = 'Last Month'; break;
+                                    case 'CUSTOM': label = 'Custom'; break;
+                                }
+                                const isActive = dateRange === r;
+                                return (
+                                    <button 
+                                        key={r}
+                                        onClick={() => setDateRange(r)}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
+                                            isActive 
+                                            ? 'bg-white text-blue-900 shadow-sm' 
+                                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-300/50'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                )
+                            })}
+                        </div>
 
                         {dateRange === 'CUSTOM' && (
                         <div className="flex gap-2 items-center">
@@ -1402,461 +2191,12 @@ const App: React.FC = () => {
           </div>
   )};
 
-  const renderCustomers = () => {
-    if (!activeCompany) return null;
-
-    // 1. Get Base Invoices based on network (same logic as dashboard/invoices)
-    let relevantInvoices = allNetworkInvoices;
-
-    // 2. Apply Location Filter
-    // Only apply specific filter if it is NOT 'ALL'
-    if (dashboardLocationFilter && dashboardLocationFilter !== 'ALL') {
-        relevantInvoices = relevantInvoices.filter(inv => inv._companyId === dashboardLocationFilter);
-    }
-
-    // 3. Extract Unique Customers (Shippers)
-    const customersMap = new Map<string, AggregatedCustomer>();
-
-    relevantInvoices.forEach(inv => {
-        const shipper = inv.shipper;
-        if (!shipper.name) return; // Skip empty records
-        
-        // Key generation: Try ID, else Name+Tel
-        const identityKey = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
-        
-        // If "ALL" locations, include company ID in key to separate them one by one per branch
-        // If specific location selected, filtering already happened, but key remains unique per branch logic effectively.
-        const key = `${identityKey}_${inv._companyId}`;
-        
-        if (!customersMap.has(key)) {
-            customersMap.set(key, {
-                key,
-                name: shipper.name,
-                idNo: shipper.idNo,
-                mobile: shipper.tel,
-                vatNo: shipper.vatnos,
-                location: inv._locationName, 
-                companyId: inv._companyId,
-                totalShipments: 0
-            });
-        }
-        
-        const customer = customersMap.get(key);
-        if (customer) {
-            customer.totalShipments += 1;
-        }
-    });
-    
-    let customers = Array.from(customersMap.values());
-
-    // 4. Search Filter
-    if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        customers = customers.filter(c => 
-            (c.name && c.name.toLowerCase().includes(q)) ||
-            (c.mobile && c.mobile.includes(q)) ||
-            (c.idNo && c.idNo.includes(q))
-        );
-    }
-
-    // Sort by name
-    customers.sort((a, b) => a.name.localeCompare(b.name));
-
-    return (
-        <div className="min-h-screen bg-gray-50">
-             {renderHeader()}
-             {renderSidebar()}
-             {renderEditCustomerModal()}
-             <main className="max-w-7xl mx-auto p-4 md:p-6">
-                <div className="flex items-center gap-4 mb-6">
-                     <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                        &larr; Back to Dashboard
-                    </button>
-                     <h2 className="text-2xl font-bold text-gray-800">Customers</h2>
-                </div>
-                
-                {renderFilterBar()} 
-
-                <div className="bg-white rounded shadow overflow-hidden">
-                    <div className="px-6 py-4 border-b flex justify-between items-center">
-                        <h3 className="font-bold text-gray-700">Customer List</h3>
-                         <span className="text-xs text-gray-500">
-                             Showing {customers.length} entries 
-                             {dashboardLocationFilter === 'ALL' ? ' across all locations' : ' in selected location'}
-                         </span>
-                    </div>
-                     <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-gray-50 text-gray-600 text-sm">
-                                    <th className="p-4 border-b">Customer Name</th>
-                                    <th className="p-4 border-b">ID No</th>
-                                    <th className="p-4 border-b">Mobile</th>
-                                    <th className="p-4 border-b">Branch</th>
-                                    <th className="p-4 border-b text-center">Shipments</th>
-                                    <th className="p-4 border-b text-center">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-sm text-gray-700">
-                                {customers.length > 0 ? (
-                                    customers.map((cust) => (
-                                        <tr 
-                                            key={cust.key} 
-                                            onClick={() => {
-                                                setSelectedCustomer(cust);
-                                                setView('CUSTOMER_DETAIL');
-                                            }}
-                                            className="hover:bg-blue-50 border-b last:border-0 cursor-pointer transition-colors"
-                                        >
-                                            <td className="p-4 font-bold text-blue-900">{cust.name}</td>
-                                            <td className="p-4 font-mono">{cust.idNo || '-'}</td>
-                                            <td className="p-4 text-gray-600">{cust.mobile || '-'}</td>
-                                            <td className="p-4 text-xs font-bold text-gray-500">
-                                                {cust.location}
-                                            </td>
-                                            <td className="p-4 text-center font-bold">{cust.totalShipments}</td>
-                                            <td className="p-4 text-center">
-                                                <button 
-                                                    onClick={(e) => handleEditCustomerClick(e, cust)}
-                                                    className="text-blue-600 hover:text-blue-800 p-2 rounded hover:bg-blue-100 transition"
-                                                    title="Edit Customer Details"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                    </svg>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan={6} className="p-8 text-center text-gray-500">No customers found.</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-             </main>
-        </div>
-    )
-  };
-
-  const renderCustomerDetail = () => {
-    if (!activeCompany || !selectedCustomer) return null;
-
-    // Filter invoices matching this specific customer key
-    const customerInvoices = allNetworkInvoices.filter(inv => {
-        const shipper = inv.shipper;
-        const identityKey = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
-        const key = `${identityKey}_${inv._companyId}`;
-        return key === selectedCustomer.key;
-    });
-
-    // Sort by date (newest first)
-    customerInvoices.sort((a, b) => new Date(parseDateStr(b.date)).getTime() - new Date(parseDateStr(a.date)).getTime());
-
-    const totalSpent = customerInvoices.reduce((acc, curr) => acc + curr.financials.netTotal, 0);
-
-    return (
-        <div className="min-h-screen bg-gray-50">
-             {renderHeader()}
-             {renderSidebar()}
-             <main className="max-w-7xl mx-auto p-4 md:p-6">
-                <div className="flex items-center gap-4 mb-6">
-                     <button onClick={() => setView('CUSTOMERS')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                        &larr; Back to Customers
-                    </button>
-                     <h2 className="text-2xl font-bold text-gray-800">Customer Details</h2>
-                </div>
-
-                <div className="bg-white p-6 rounded shadow mb-6 border-l-4 border-blue-900 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <h3 className="text-3xl font-bold text-blue-900">{selectedCustomer.name}</h3>
-                        <div className="mt-2 text-gray-600 space-y-1">
-                             <p><span className="font-bold">Mobile:</span> {selectedCustomer.mobile}</p>
-                             <p><span className="font-bold">ID No:</span> {selectedCustomer.idNo}</p>
-                             <p><span className="font-bold">Branch:</span> {selectedCustomer.location}</p>
-                        </div>
-                    </div>
-                    <div className="flex flex-col justify-center items-start md:items-end">
-                        <div className="text-right">
-                            <p className="text-sm text-gray-500">Total Spent</p>
-                            <p className="text-3xl font-bold text-green-700">SAR {totalSpent.toFixed(2)}</p>
-                        </div>
-                         <div className="text-right mt-2">
-                            <p className="text-sm text-gray-500">Total Shipments</p>
-                            <p className="text-xl font-bold text-gray-800">{customerInvoices.length}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-white rounded shadow overflow-hidden">
-                    <div className="px-6 py-4 border-b">
-                        <h3 className="font-bold text-gray-700">Shipment History</h3>
-                    </div>
-                     <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-gray-50 text-gray-600 text-sm">
-                                    <th className="p-4 border-b">Invoice #</th>
-                                    <th className="p-4 border-b">Date</th>
-                                    <th className="p-4 border-b">Consignee</th>
-                                    <th className="p-4 border-b">Items</th>
-                                    <th className="p-4 border-b">Amount</th>
-                                    <th className="p-4 border-b">Status</th>
-                                    <th className="p-4 border-b text-center">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-sm text-gray-700">
-                                {customerInvoices.map((inv, idx) => (
-                                    <tr key={idx} className="hover:bg-gray-50 border-b last:border-0">
-                                        <td className="p-4 font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
-                                        <td className="p-4 text-gray-600">{inv.date}</td>
-                                        <td className="p-4">{inv.consignee.name}</td>
-                                        <td className="p-4 text-xs text-gray-500">{inv.cargoItems.length} items ({inv.shipper.weight}kg)</td>
-                                        <td className="p-4 font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
-                                        <td className="p-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                    inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
-                                                    inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
-                                                    'bg-gray-100 text-gray-800'
-                                                }`}>
-                                                {inv.status || 'Received'}
-                                            </span>
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            <button 
-                                                onClick={() => handleEditInvoice(inv)}
-                                                className="text-blue-600 hover:text-blue-800 text-sm font-medium underline"
-                                            >
-                                                View/Edit
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-             </main>
-        </div>
-    );
-  };
-
-  const renderBranchManagement = () => {
-    if(!activeCompany) return null;
-
-    // Determine Logic:
-    // If I am a parent (parentId is null), show ME as top, and MY CHILDREN as branches.
-    // If I am a child (parentId exists), show MY PARENT as top, and MY SIBLINGS (including me) as branches.
-    
-    let headOffice: Company | undefined;
-    let branches: Company[] = [];
-
-    if (activeCompany.parentId) {
-        // I am a branch
-        headOffice = companies.find(c => c.id === activeCompany.parentId);
-        branches = companies.filter(c => c.parentId === activeCompany.parentId);
-    } else {
-        // I am HQ (potentially)
-        headOffice = activeCompany;
-        branches = companies.filter(c => c.parentId === activeCompany.id);
-    }
-
-    return (
-        <div className="min-h-screen bg-gray-50">
-            {renderHeader()}
-            {renderSidebar()}
-            <main className="max-w-7xl mx-auto p-4 md:p-6">
-                <div className="flex items-center gap-4 mb-6">
-                    <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                        &larr; Back to Dashboard
-                    </button>
-                    <h2 className="text-2xl font-bold text-gray-800">Branch Management</h2>
-                </div>
-
-                {/* Head Office Card */}
-                <div className="mb-8">
-                     <h3 className="text-gray-500 font-bold uppercase text-sm mb-3 tracking-wider">Head Office</h3>
-                     {headOffice ? (
-                         <div className="bg-white border-l-4 border-blue-900 rounded shadow-md p-6 flex flex-col md:flex-row justify-between items-start md:items-center">
-                             <div>
-                                 <h4 className="text-xl font-bold text-gray-900">{headOffice.settings.companyName} {headOffice.settings.location ? `(${headOffice.settings.location})` : ''}</h4>
-                                 <p className="text-gray-500">{headOffice.settings.addressLine2}, {headOffice.settings.addressLine1}</p>
-                                 <p className="text-gray-500 text-sm mt-1">Phone: {headOffice.settings.phone1}</p>
-                             </div>
-                             <div className="mt-4 md:mt-0 flex gap-4">
-                                  <div className="text-right">
-                                      <p className="text-xs text-gray-400 uppercase">Role</p>
-                                      <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold">HEADQUARTERS</span>
-                                  </div>
-                                  {activeCompany.id === headOffice.id && (
-                                       <div className="text-right">
-                                           <p className="text-xs text-gray-400 uppercase">Status</p>
-                                           <span className="text-green-600 font-bold text-sm">Active (You)</span>
-                                       </div>
-                                  )}
-                             </div>
-                         </div>
-                     ) : (
-                         <div className="bg-red-50 text-red-600 p-4 rounded border border-red-200">
-                             Parent Company data not found. Contact Admin.
-                         </div>
-                     )}
-                </div>
-
-                {/* Network Branches */}
-                <div>
-                     <h3 className="text-gray-500 font-bold uppercase text-sm mb-3 tracking-wider flex justify-between items-center">
-                         <span>Network Branches ({branches.length})</span>
-                     </h3>
-                     
-                     {branches.length > 0 ? (
-                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                             {branches.map(branch => (
-                                 <div key={branch.id} className={`bg-white rounded shadow border hover:shadow-lg transition p-5 flex flex-col justify-between ${branch.id === activeCompany.id ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'}`}>
-                                     <div>
-                                         <div className="flex justify-between items-start">
-                                            <h4 className="font-bold text-gray-800 text-lg mb-1">{branch.settings.companyName} {branch.settings.location ? `(${branch.settings.location})` : ''}</h4>
-                                            {branch.id === activeCompany.id && <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded">You</span>}
-                                         </div>
-                                         <p className="text-sm text-gray-600">{branch.settings.addressLine2}</p>
-                                         <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
-                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
-                                             {branch.settings.phone1}
-                                         </p>
-                                     </div>
-                                     <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
-                                         <div className="text-xs text-gray-500">
-                                             User: <span className="font-mono">{branch.username}</span>
-                                         </div>
-                                         <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs">Branch Office</span>
-                                     </div>
-                                 </div>
-                             ))}
-                         </div>
-                     ) : (
-                         <div className="bg-gray-100 p-8 text-center rounded text-gray-500 italic">
-                             No branches connected to this Head Office yet.
-                         </div>
-                     )}
-                </div>
-            </main>
-        </div>
-    );
-  };
-
-  if (view === 'MODIFY_STATUS' && activeCompany) {
-      return (
-        <div className="min-h-screen bg-gray-50">
-            {renderHeader()}
-            {renderSidebar()}
-            {renderHistoryModal()} 
-            <main className="max-w-7xl mx-auto p-4 md:p-6">
-                <div className="flex items-center gap-4 mb-6">
-                    <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                        &larr; Back to Dashboard
-                    </button>
-                    <h2 className="text-2xl font-bold text-gray-800">Modify Status</h2>
-                </div>
-                
-                {renderFilterBar()}
-
-                <div className="bg-blue-50 p-4 rounded shadow border border-blue-200 mb-4 flex justify-between items-center">
-                    <div className="flex gap-4 items-center">
-                        <span className="font-bold text-blue-900">{selectedInvoiceNos.length} Selected</span>
-                        <div className="flex items-center gap-2">
-                             <label className="text-sm text-gray-700">Set Status To:</label>
-                             <select 
-                                className="border border-gray-300 rounded p-2 bg-white text-black"
-                                value={bulkStatus}
-                                onChange={(e) => setBulkStatus(e.target.value as ShipmentStatus)}
-                            >
-                                {SHIPMENT_STATUSES.map(status => (
-                                    <option key={status} value={status}>{status}</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-                    <button 
-                        onClick={handleBulkStatusUpdate}
-                        disabled={selectedInvoiceNos.length === 0}
-                        className="bg-blue-700 text-white px-6 py-2 rounded font-bold hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    >
-                        Save Changes
-                    </button>
-                </div>
-
-                <div className="bg-white rounded shadow overflow-hidden">
-                     <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-gray-50 text-gray-600 text-sm">
-                                    <th className="p-4 border-b w-10">
-                                        <input 
-                                            type="checkbox" 
-                                            onChange={toggleAllInvoices}
-                                            checked={selectedInvoiceNos.length > 0 && selectedInvoiceNos.length === filteredInvoices.length}
-                                            className="h-4 w-4"
-                                        />
-                                    </th>
-                                    <th className="p-4 border-b">Invoice #</th>
-                                    <th className="p-4 border-b">Location</th>
-                                    <th className="p-4 border-b">Date</th>
-                                    <th className="p-4 border-b">Shipper Name</th>
-                                    <th className="p-4 border-b">Mobile</th>
-                                    <th className="p-4 border-b">Amount</th>
-                                    <th className="p-4 border-b">Current Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-sm text-gray-700">
-                                {filteredInvoices.length > 0 ? (
-                                    filteredInvoices.map((inv, idx) => (
-                                        <tr key={idx} className={`hover:bg-gray-50 ${selectedInvoiceNos.includes(inv.invoiceNo) ? 'bg-blue-50' : ''}`}>
-                                            <td className="p-4 border-b">
-                                                <input 
-                                                    type="checkbox" 
-                                                    checked={selectedInvoiceNos.includes(inv.invoiceNo)}
-                                                    onChange={() => toggleInvoiceSelection(inv.invoiceNo)}
-                                                    className="h-4 w-4"
-                                                />
-                                            </td>
-                                            <td className="p-4 border-b font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
-                                            <td className="p-4 border-b text-xs text-gray-500">
-                                                {inv._locationName}
-                                            </td>
-                                            <td className="p-4 border-b">{inv.date}</td>
-                                            <td className="p-4 border-b font-medium">{inv.shipper.name}</td>
-                                            <td className="p-4 border-b text-gray-500">{inv.shipper.tel}</td>
-                                            <td className="p-4 border-b font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
-                                            <td className="p-4 border-b">
-                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                    inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
-                                                    inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
-                                                    'bg-gray-100 text-gray-800'
-                                                }`}>
-                                                    {inv.status || 'Received'}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr><td colSpan={8} className="p-8 text-center text-gray-500">No invoices found.</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                     </div>
-                </div>
-            </main>
-        </div>
-      );
+  if (view === 'ITEMS' && activeCompany) {
+      return renderItems();
   }
 
-  if (view === 'BRANCH_MANAGEMENT' && activeCompany) {
-      return renderBranchManagement();
-  }
-  
+  // ... (Rest of existing views: CUSTOMERS, CUSTOMER_DETAIL, FINANCE, DASHBOARD, INVOICES)
+
   if (view === 'CUSTOMERS' && activeCompany) {
       return renderCustomers();
   }
@@ -1864,8 +2204,13 @@ const App: React.FC = () => {
   if (view === 'CUSTOMER_DETAIL' && activeCompany) {
       return renderCustomerDetail();
   }
+  
+  if (view === 'FINANCE' && activeCompany) {
+      return renderFinanceView();
+  }
 
   if (view === 'DASHBOARD' && activeCompany) {
+    // ... (Existing Dashboard render code) ...
     return (
       <div className="min-h-screen bg-gray-50">
         {renderHeader()}
@@ -1903,7 +2248,7 @@ const App: React.FC = () => {
 
           {renderFilterBar()}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div className="bg-white p-6 rounded shadow-sm border-l-4 border-blue-500">
               <div className="text-gray-500 text-sm">Shipments ({getRangeLabel()})</div>
               <div className="text-3xl font-bold text-gray-800">{stats.totalShipments}</div>
@@ -1912,9 +2257,13 @@ const App: React.FC = () => {
               <div className="text-gray-500 text-sm">Revenue ({getRangeLabel()})</div>
               <div className="text-3xl font-bold text-gray-800">SAR {stats.totalRevenue.toFixed(2)}</div>
             </div>
-            <div className="bg-white p-6 rounded shadow-sm border-l-4 border-yellow-500">
-              <div className="text-gray-500 text-sm">Pending Clearance</div>
-              <div className="text-3xl font-bold text-gray-800">3</div>
+            <div className="bg-white p-6 rounded shadow-sm border-l-4 border-purple-500">
+              <div className="text-gray-500 text-sm">Cash in Hand</div>
+              <div className="text-3xl font-bold text-gray-800">SAR {stats.cashInHand.toFixed(2)}</div>
+            </div>
+            <div className="bg-white p-6 rounded shadow-sm border-l-4 border-teal-500">
+              <div className="text-gray-500 text-sm">Bank Balance</div>
+              <div className="text-3xl font-bold text-gray-800">SAR {stats.bankBalance.toFixed(2)}</div>
             </div>
           </div>
 
@@ -2111,6 +2460,7 @@ const App: React.FC = () => {
             shipmentTypes={activeCompany?.settings.shipmentTypes || []}
             history={allNetworkInvoices}
             isVatEnabled={activeCompany?.settings.isVatEnabled || false} 
+            savedItems={activeCompany?.items || []}
           />
       </div>
     );
