@@ -1,4 +1,5 @@
 
+
 export interface InvoiceItem {
   slNo: number;
   description: string;
@@ -34,7 +35,11 @@ export interface InvoiceData {
   shipmentType: string;
   status?: ShipmentStatus; // Added status
   statusHistory?: StatusHistoryItem[]; // Track history of status changes
-  paymentMode?: 'CASH' | 'BANK'; // Payment mode for transaction mapping
+  paymentMode?: 'CASH' | 'BANK' | 'SPLIT'; // Payment mode for transaction mapping
+  splitDetails?: {
+    cash: number;
+    bank: number;
+  };
   shipper: {
     name: string;
     idNo: string;

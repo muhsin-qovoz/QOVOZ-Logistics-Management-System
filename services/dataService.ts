@@ -1,4 +1,5 @@
-import { Company, InvoiceData, FinancialTransaction, FinancialAccount, ItemMaster } from '../types';
+
+import { Company, InvoiceData, FinancialTransaction, FinancialAccount, ItemMaster, InvoiceItem } from '../types';
 
 export const DEFAULT_TC_HEADER = "Terms and Conditions";
 export const DEFAULT_TC_ENGLISH = "All business is undertaken subject to the Standard Trading Conditions of the Company, which are available upon request.";
@@ -25,7 +26,8 @@ export const DEFAULT_ITEMS: ItemMaster[] = [
     { id: 'itm_7', name: 'TOYS' }
 ];
 
-const STORAGE_KEY = 'qovoz_companies_v1';
+// Changed key to force a reset of data
+const STORAGE_KEY = 'qovoz_companies_v2_comprehensive';
 
 export const formatDate = (date: Date): string => {
     const d = new Date(date);
@@ -42,66 +44,218 @@ export const getOneYearFromNow = (): string => {
 };
 
 export const generateMockTransactions = (invoices: InvoiceData[]): FinancialTransaction[] => {
-    return invoices.map(inv => ({
-        id: `tx_${inv.invoiceNo}`,
-        date: new Date().toISOString().split('T')[0],
-        timestamp: new Date().toISOString(),
-        accountId: 'acc_sales',
-        type: 'INCOME',
-        amount: inv.financials.netTotal,
-        description: `Invoice Generation: ${inv.invoiceNo}`,
-        referenceId: inv.invoiceNo,
-        paymentMode: inv.paymentMode || 'CASH'
-    }));
+    return invoices.map(inv => {
+        let txs: FinancialTransaction[] = [];
+        const date = new Date().toISOString().split('T')[0];
+        const timestamp = new Date().toISOString();
+
+        if (inv.paymentMode === 'SPLIT' && inv.splitDetails) {
+            if (inv.splitDetails.cash > 0) {
+                txs.push({
+                    id: `tx_${inv.invoiceNo}_cash`,
+                    date, timestamp, accountId: 'acc_sales', type: 'INCOME',
+                    amount: inv.splitDetails.cash,
+                    description: `Invoice ${inv.invoiceNo} (Cash Split)`,
+                    referenceId: inv.invoiceNo,
+                    paymentMode: 'CASH'
+                });
+            }
+            if (inv.splitDetails.bank > 0) {
+                txs.push({
+                    id: `tx_${inv.invoiceNo}_bank`,
+                    date, timestamp, accountId: 'acc_sales', type: 'INCOME',
+                    amount: inv.splitDetails.bank,
+                    description: `Invoice ${inv.invoiceNo} (Bank Split)`,
+                    referenceId: inv.invoiceNo,
+                    paymentMode: 'BANK'
+                });
+            }
+        } else {
+             txs.push({
+                id: `tx_${inv.invoiceNo}`,
+                date, timestamp, accountId: 'acc_sales', type: 'INCOME',
+                amount: inv.financials.netTotal,
+                description: `Invoice Generation: ${inv.invoiceNo}`,
+                referenceId: inv.invoiceNo,
+                paymentMode: (inv.paymentMode === 'CASH' || inv.paymentMode === 'BANK') ? inv.paymentMode : 'CASH'
+            });
+        }
+        return txs;
+    }).flat();
 };
 
-// --- MOCK DATA ---
-const MOCK_INVOICES: InvoiceData[] = [
-    {
-        invoiceNo: 'INV-1001',
-        date: formatDate(new Date()),
-        shipmentType: 'AIR CARGO',
-        status: 'Received',
-        paymentMode: 'CASH',
-        shipper: { name: 'Abdul Rahman', idNo: '1010101010', tel: '0501234567', vatnos: '', pcs: 2, weight: 25 },
-        consignee: { name: 'Mohammed Ali', address: '123 Street', post: 'Riyadh', pin: '11564', country: 'Saudi Arabia', district: 'Olaya', state: 'Riyadh', tel: '0551234567', tel2: '' },
-        cargoItems: [
-            { slNo: 1, description: 'CLOTHES', boxNo: 'B1', qty: 20, weight: 15 },
-            { slNo: 2, description: 'SHOES', boxNo: 'B2', qty: 5, weight: 10 }
-        ],
-        financials: { total: 375, billCharges: 40, vat: 15, vatAmount: 62.25, netTotal: 477.25 },
-        statusHistory: [{ status: 'Received', timestamp: new Date().toISOString() }]
-    },
-    {
-        invoiceNo: 'INV-1002',
-        date: formatDate(new Date(Date.now() - 86400000)), // Yesterday
-        shipmentType: 'SEA CARGO',
-        status: 'Delivered',
-        paymentMode: 'BANK',
-        shipper: { name: 'Sarah Jones', idNo: '2020202020', tel: '0509876543', vatnos: '300123456700003', pcs: 5, weight: 100 },
-        consignee: { name: 'Family Store', address: 'Main Road', post: 'Jeddah', pin: '21411', country: 'Saudi Arabia', district: 'Al Balad', state: 'Makkah', tel: '0569876543', tel2: '' },
-        cargoItems: [
-            { slNo: 1, description: 'ELECTRONICS', boxNo: 'S1', qty: 10, weight: 20 },
-            { slNo: 2, description: 'KITCHENWARE', boxNo: 'S2', qty: 15, weight: 20 },
-            { slNo: 3, description: 'BOOKS', boxNo: 'S3', qty: 50, weight: 20 },
-            { slNo: 4, description: 'TOYS', boxNo: 'S4', qty: 20, weight: 20 },
-            { slNo: 5, description: 'TOOLS', boxNo: 'S5', qty: 5, weight: 20 }
-        ],
-        financials: { total: 500, billCharges: 40, vat: 15, vatAmount: 81, netTotal: 621 },
-        statusHistory: [
-            { status: 'Received', timestamp: new Date(Date.now() - 172800000).toISOString() },
-            { status: 'In transit', timestamp: new Date(Date.now() - 86400000).toISOString() },
-            { status: 'Delivered', timestamp: new Date().toISOString() }
-        ]
+// --- DATA GENERATORS ---
+
+const NAMES = ['Ahmed Al-Fagih', 'Sarah Johnson', 'Mohammed Ali', 'Fatima Syed', 'Global Trading Est', 'Quick Ship Ltd', 'Riyadh Retailers'];
+const LOCATIONS = ['Riyadh', 'Jeddah', 'Dammam', 'Mecca', 'Medina', 'Tabuk'];
+const SHIPMENT_TYPES = [{ name: 'AIR CARGO', value: 15 }, { name: 'SEA CARGO', value: 5 }, { name: 'LAND CARGO', value: 3 }];
+
+const generateInvoice = (
+    index: number, 
+    prefix: string, 
+    startNo: number, 
+    vatEnabled: boolean, 
+    location: string
+): InvoiceData => {
+    const invNo = `${prefix}${startNo + index}`;
+    const shipperName = NAMES[index % NAMES.length];
+    const consigneeName = NAMES[(index + 3) % NAMES.length];
+    const weight = Math.floor(Math.random() * 50) + 10;
+    const pcs = Math.floor(Math.random() * 5) + 1;
+    const type = SHIPMENT_TYPES[index % SHIPMENT_TYPES.length];
+    const date = new Date();
+    date.setDate(date.getDate() - (index * 2)); // Spread dates out
+
+    const total = weight * type.value;
+    const billCharges = pcs * 20;
+    const subTotal = total + billCharges;
+    const vatRate = vatEnabled ? 0.15 : 0;
+    const vatAmount = subTotal * vatRate;
+    const netTotal = subTotal + vatAmount;
+
+    const paymentMode = index % 3 === 0 ? 'BANK' : (index % 3 === 1 ? 'SPLIT' : 'CASH');
+    let splitDetails = { cash: 0, bank: 0 };
+    if (paymentMode === 'SPLIT') {
+        const cash = Math.floor(netTotal / 2);
+        splitDetails = { cash, bank: netTotal - cash };
     }
-];
+
+    const items: InvoiceItem[] = Array.from({length: pcs}).map((_, i) => ({
+        slNo: i + 1,
+        description: DEFAULT_ITEMS[i % DEFAULT_ITEMS.length].name,
+        boxNo: `B${i+1}`,
+        qty: Math.floor(Math.random() * 10) + 1,
+        weight: parseFloat((weight / pcs).toFixed(2))
+    }));
+
+    return {
+        invoiceNo: invNo,
+        date: formatDate(date),
+        shipmentType: type.name,
+        status: index === 0 ? 'Delivered' : 'Received',
+        statusHistory: [{ status: 'Received', timestamp: date.toISOString() }],
+        paymentMode: paymentMode,
+        splitDetails: paymentMode === 'SPLIT' ? splitDetails : undefined,
+        shipper: {
+            name: shipperName,
+            idNo: `10${Math.floor(Math.random() * 100000000)}`,
+            tel: `05${Math.floor(Math.random() * 100000000)}`,
+            vatnos: vatEnabled ? `300${Math.floor(Math.random() * 100000000)}` : '',
+            pcs,
+            weight
+        },
+        consignee: {
+            name: consigneeName,
+            address: `${Math.floor(Math.random() * 100)} Street`,
+            post: location,
+            pin: '10000',
+            country: 'Saudi Arabia',
+            district: 'Central',
+            state: 'State',
+            tel: `05${Math.floor(Math.random() * 100000000)}`,
+            tel2: ''
+        },
+        cargoItems: items,
+        financials: {
+            total,
+            billCharges,
+            vat: vatRate * 100,
+            vatAmount,
+            netTotal
+        }
+    };
+};
+
+const createCompany = (
+    id: string, 
+    name: string, 
+    username: string, 
+    parentId: string | undefined, 
+    vatEnabled: boolean, 
+    location: string,
+    invoicePrefix: string = 'INV-'
+): Company => {
+    const invoices = Array.from({length: 5}).map((_, i) => generateInvoice(i, invoicePrefix, 1000, vatEnabled, location));
+    
+    // Generate Invoice Transactions
+    const invoiceTransactions = generateMockTransactions(invoices);
+    
+    // Generate Random Expense Transactions
+    const expenseTransactions: FinancialTransaction[] = Array.from({length: 3}).map((_, i) => ({
+        id: `exp_${id}_${i}`,
+        date: new Date().toISOString().split('T')[0],
+        timestamp: new Date().toISOString(),
+        accountId: i % 2 === 0 ? 'acc_rent' : 'acc_utilities',
+        type: 'EXPENSE',
+        amount: Math.floor(Math.random() * 500) + 100,
+        description: i % 2 === 0 ? 'Monthly Rent' : 'Utility Bill',
+        paymentMode: 'CASH'
+    }));
+
+    return {
+        id,
+        parentId,
+        username,
+        password: username, // Password same as username for mock
+        expiryDate: getOneYearFromNow(),
+        settings: {
+            companyName: name,
+            companyArabicName: name === 'Test Cargo' ? 'تيست كارغو' : (name === 'New Cargo' ? 'نيو كارغو' : 'أدمن كارغو'),
+            addressLine1: 'King Fahd Road',
+            addressLine2: 'Olaya District',
+            addressLine1Arabic: 'طريق الملك فهد',
+            addressLine2Arabic: 'حي العليا',
+            phone1: '0112345678',
+            phone2: '0551234567',
+            vatnoc: vatEnabled ? '300011122233303' : '',
+            isVatEnabled: vatEnabled,
+            logoUrl: '',
+            brandColor: DEFAULT_BRAND_COLOR,
+            shipmentTypes: SHIPMENT_TYPES,
+            tcHeader: DEFAULT_TC_HEADER,
+            tcEnglish: DEFAULT_TC_ENGLISH,
+            tcArabic: DEFAULT_TC_ARABIC,
+            invoicePrefix,
+            invoiceStartNumber: 1005,
+            location
+        },
+        invoices,
+        financialAccounts: DEFAULT_ACCOUNTS,
+        financialTransactions: [...invoiceTransactions, ...expenseTransactions],
+        items: DEFAULT_ITEMS
+    };
+};
+
+const generateComprehensiveMockData = (): Company[] => {
+    const companies: Company[] = [];
+
+    // --- DATA SET 1: Test Cargo (Multi-Branch, VAT Enabled) ---
+    // HQ
+    companies.push(createCompany('comp_test_hq', 'Test Cargo', 'test', undefined, true, 'Riyadh HQ', 'HQ-'));
+    // Branch 1
+    companies.push(createCompany('comp_test_b1', 'Test Cargo B1', 'test1', 'comp_test_hq', true, 'Jeddah', 'JD-'));
+    // Branch 2
+    companies.push(createCompany('comp_test_b2', 'Test Cargo B2', 'test2', 'comp_test_hq', true, 'Dammam', 'DM-'));
+
+    // --- DATA SET 2: New Cargo (Single, Non-VAT) ---
+    companies.push(createCompany('comp_new', 'New Cargo', 'new', undefined, false, 'Main Branch', 'NC-'));
+
+    // --- DATA SET 3: Admin Cargo (Multi-Branch, Tax-Disabled as per header requirement for variety) ---
+    // HQ
+    companies.push(createCompany('comp_admin_hq', 'Admin Cargo', 'admin', undefined, false, 'Riyadh Main', 'AD-'));
+    // Branch 1
+    companies.push(createCompany('comp_admin_b1', 'Admin Cargo B1', 'admin1', 'comp_admin_hq', false, 'Mecca', 'MC-'));
+    // Branch 2
+    companies.push(createCompany('comp_admin_b2', 'Admin Cargo B2', 'admin2', 'comp_admin_hq', false, 'Medina', 'MD-'));
+
+    return companies;
+};
 
 export const getStoredCompanies = (): Company[] => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
         try {
             const companies = JSON.parse(stored);
-            // Migration: Ensure items array exists for existing data
             return companies.map((c: Company) => ({
                 ...c,
                 items: c.items || DEFAULT_ITEMS
@@ -110,35 +264,11 @@ export const getStoredCompanies = (): Company[] => {
             console.error("Failed to parse companies", e);
         }
     }
-    // Return a default admin company with MOCK DATA if empty
-    return [{
-        id: 'hq_1',
-        username: 'admin',
-        password: 'password',
-        expiryDate: '2030-01-01',
-        settings: {
-            companyName: 'My Logistics HQ',
-            companyArabicName: 'المقر الرئيسي للخدمات اللوجستية',
-            addressLine1: '123 Logistics Way',
-            addressLine2: 'Business District',
-            phone1: '0500000000',
-            phone2: '0555555555',
-            vatnoc: '300000000000003',
-            isVatEnabled: true,
-            brandColor: DEFAULT_BRAND_COLOR,
-            shipmentTypes: [{ name: 'AIR CARGO', value: 15 }, { name: 'SEA CARGO', value: 5 }],
-            tcHeader: DEFAULT_TC_HEADER,
-            tcEnglish: DEFAULT_TC_ENGLISH,
-            tcArabic: DEFAULT_TC_ARABIC,
-            invoicePrefix: 'INV-',
-            invoiceStartNumber: 1003,
-            location: 'Riyadh'
-        },
-        invoices: MOCK_INVOICES,
-        financialAccounts: DEFAULT_ACCOUNTS,
-        financialTransactions: generateMockTransactions(MOCK_INVOICES),
-        items: DEFAULT_ITEMS
-    }];
+    
+    // If empty or new key, generate fresh comprehensive mock data
+    const freshData = generateComprehensiveMockData();
+    saveStoredCompanies(freshData);
+    return freshData;
 };
 
 export const saveStoredCompanies = (companies: Company[]) => {

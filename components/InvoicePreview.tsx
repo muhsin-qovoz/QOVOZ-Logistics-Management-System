@@ -101,6 +101,7 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
                 <div className="w-full text-white flex justify-between items-center px-4 py-1 mb-1 text-xs font-bold" style={{ backgroundColor: brandColor }}>
                     <div>DATE: {data.date}</div>
                     <div className="uppercase">SHIPMENT TYPE: {data.shipmentType}</div>
+                    <div className="uppercase">PAYMENT: {data.paymentMode || 'CASH'}</div>
                     <div className="text-right">INV NO: {data.invoiceNo}</div>
                 </div>
 
@@ -231,6 +232,10 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
                             <span>NET TOTAL</span>
                             <span className="font-arabic font-normal text-right px-2">المجموع الصافي</span>
                             <span>{data.financials.netTotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between border-t border-gray-400 px-2 py-0.5 text-[10px]">
+                            <span>PAYMENT MODE</span>
+                            <span className="uppercase">{data.paymentMode || 'CASH'}</span>
                         </div>
                     </div>
                 </div>

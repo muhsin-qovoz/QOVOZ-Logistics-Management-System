@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { InvoiceData, InvoiceItem, ShipmentType, ItemMaster, SavedCustomer } from '../types';
 import { extractInvoiceData, fileToGenerativePart } from '../services/geminiService';
@@ -32,7 +33,9 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
   const [data, setData] = useState<InvoiceData>({
       ...initialData,
       cargoItems: ensureItems(initialData.cargoItems),
-      status: initialData.status || 'Received' // Ensure default
+      status: initialData.status || 'Received', // Ensure default
+      paymentMode: initialData.paymentMode || 'CASH',
+      splitDetails: initialData.splitDetails || { cash: 0, bank: 0 }
   });
   
   const [isProcessing, setIsProcessing] = useState(false);
@@ -150,6 +153,28 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
           }));
       }
   }, [data.cargoItems]);
+
+  // Recalculate financials when weight/pcs changes (or if data changes generally, but we rely on explicit calls mostly)
+  // Actually, standard practice is to auto-calc financials if weight/pcs changes.
+  // We'll leave the manual trigger unless requested, but let's ensure split logic updates if total changes.
+  useEffect(() => {
+      if (data.paymentMode === 'SPLIT') {
+          // If total changes, rebalance split. Prioritize keeping cash amount, adjust bank.
+          const total = data.financials.netTotal;
+          const currentCash = data.splitDetails?.cash || 0;
+          let newCash = currentCash;
+          
+          if (newCash > total) newCash = total;
+          const newBank = total - newCash;
+
+          if (newCash !== data.splitDetails?.cash || newBank !== data.splitDetails?.bank) {
+             setData(prev => ({
+                 ...prev,
+                 splitDetails: { cash: newCash, bank: newBank }
+             }));
+          }
+      }
+  }, [data.financials.netTotal, data.paymentMode]);
 
   // Calculate box weights summary
   const boxWeightsSummary = useMemo(() => {
@@ -479,6 +504,48 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
           ...prev,
           financials: { ...prev.financials, billCharges, vatAmount, netTotal }
       }));
+  };
+
+  const handlePaymentModeChange = (mode: 'CASH' | 'BANK' | 'SPLIT') => {
+      setData(prev => {
+          let split = { cash: 0, bank: 0 };
+          if (mode === 'SPLIT') {
+             // Initialize split: Cash 0, Bank = Net Total
+             split = { cash: 0, bank: prev.financials.netTotal };
+          }
+          return { ...prev, paymentMode: mode, splitDetails: split };
+      });
+  };
+
+  const handleSplitChange = (type: 'cash' | 'bank', value: number) => {
+      const total = data.financials.netTotal;
+      let val = value;
+      if (val < 0) val = 0;
+      if (val > total) val = total;
+
+      if (type === 'cash') {
+          setData(prev => ({
+              ...prev,
+              splitDetails: { cash: val, bank: total - val }
+          }));
+      } else {
+          setData(prev => ({
+              ...prev,
+              splitDetails: { bank: val, cash: total - val }
+          }));
+      }
+  };
+
+  const handleFormSubmit = () => {
+      // Validate Split Logic
+      if (data.paymentMode === 'SPLIT') {
+          const sum = (data.splitDetails?.cash || 0) + (data.splitDetails?.bank || 0);
+          if (Math.abs(sum - data.financials.netTotal) > 0.1) {
+              alert(`Split amounts (SAR ${sum.toFixed(2)}) do not match Net Total (SAR ${data.financials.netTotal.toFixed(2)}). Please adjust.`);
+              return;
+          }
+      }
+      onSubmit(data);
   };
 
   const inputClass = "w-full border p-1 text-sm bg-gray-300 text-black placeholder-black border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
@@ -973,12 +1040,52 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ initialData, onSubmit, onCanc
                         readOnly
                    />
                </div>
+
+                {/* Payment Mode Selector */}
+                <div className="mt-4 pt-4 border-t border-gray-300">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Payment Mode</label>
+                    <div className="flex gap-2 mb-2">
+                        {['CASH', 'BANK', 'SPLIT'].map(mode => (
+                            <button
+                                key={mode}
+                                onClick={() => handlePaymentModeChange(mode as 'CASH' | 'BANK' | 'SPLIT')}
+                                className={`flex-1 py-1 text-[10px] font-bold rounded border transition-colors ${data.paymentMode === mode ? 'bg-blue-900 text-white border-blue-900' : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'}`}
+                            >
+                                {mode === 'BANK' ? 'CARD/BANK' : mode}
+                            </button>
+                        ))}
+                    </div>
+                    
+                    {data.paymentMode === 'SPLIT' && (
+                        <div className="bg-yellow-50 p-2 rounded border border-yellow-200 text-xs animate-fade-in">
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-gray-600 font-semibold">Cash</span>
+                                <input 
+                                    type="number" 
+                                    value={data.splitDetails?.cash || 0}
+                                    onChange={(e) => handleSplitChange('cash', parseFloat(e.target.value) || 0)}
+                                    className="w-24 text-right border border-yellow-300 rounded p-1 focus:outline-none focus:border-blue-500 bg-white"
+                                />
+                            </div>
+                             <div className="flex justify-between items-center">
+                                <span className="text-gray-600 font-semibold">Bank</span>
+                                <input 
+                                    type="number" 
+                                    value={data.splitDetails?.bank || 0}
+                                    onChange={(e) => handleSplitChange('bank', parseFloat(e.target.value) || 0)}
+                                    className="w-24 text-right border border-yellow-300 rounded p-1 focus:outline-none focus:border-blue-500 bg-white"
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+
            </div>
       </div>
 
       <div className="mt-8 flex justify-end gap-4 order-6">
         <button onClick={onCancel} className="px-6 py-2 border rounded text-gray-600 hover:bg-gray-100">Cancel</button>
-        <button onClick={() => onSubmit(data)} className="px-6 py-2 bg-blue-900 text-white rounded hover:bg-blue-800 shadow">Generate Invoice</button>
+        <button onClick={handleFormSubmit} className="px-6 py-2 bg-blue-900 text-white rounded hover:bg-blue-800 shadow">Generate Invoice</button>
       </div>
     </div>
   );

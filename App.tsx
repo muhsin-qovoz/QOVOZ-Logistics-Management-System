@@ -562,31 +562,46 @@ const App: React.FC = () => {
             const updatedInvoices = [...c.invoices];
             updatedInvoices[existingIndex] = data;
 
-            // --- AUTO FINANCE LINKING ---
-            // Check if there is already a transaction for this invoice
-            let updatedTransactions = [...(c.financialTransactions || [])];
-            const txIndex = updatedTransactions.findIndex(t => t.referenceId === data.invoiceNo && t.type === 'INCOME');
-            
-            if (txIndex >= 0) {
-                // Update existing transaction
-                updatedTransactions[txIndex] = {
-                    ...updatedTransactions[txIndex],
-                    amount: data.financials.netTotal,
-                    date: new Date().toISOString().split('T')[0], // Update date to today or keep original? For now update to today to reflect edit
-                    paymentMode: data.paymentMode || 'CASH'
-                };
+            // --- FINANCE LINKING (Re-write) ---
+            // 1. Remove ALL existing transactions for this invoice reference
+            let updatedTransactions = (c.financialTransactions || []).filter(t => t.referenceId !== data.invoiceNo);
+
+            // 2. Generate New Transactions
+            const timestamp = new Date().toISOString();
+            const date = new Date().toISOString().split('T')[0];
+
+            if (data.paymentMode === 'SPLIT' && data.splitDetails) {
+                // Add Cash Part
+                if (data.splitDetails.cash > 0) {
+                        updatedTransactions.push({
+                        id: `tx_${data.invoiceNo}_cash_${Date.now()}`,
+                        date, timestamp, accountId: 'acc_sales', type: 'INCOME',
+                        amount: data.splitDetails.cash,
+                        description: `Invoice ${data.invoiceNo} (Cash Split)`,
+                        referenceId: data.invoiceNo,
+                        paymentMode: 'CASH'
+                    });
+                }
+                // Add Bank Part
+                if (data.splitDetails.bank > 0) {
+                        updatedTransactions.push({
+                        id: `tx_${data.invoiceNo}_bank_${Date.now()}`,
+                        date, timestamp, accountId: 'acc_sales', type: 'INCOME',
+                        amount: data.splitDetails.bank,
+                        description: `Invoice ${data.invoiceNo} (Bank Split)`,
+                        referenceId: data.invoiceNo,
+                        paymentMode: 'BANK'
+                    });
+                }
             } else {
-                // Create new transaction if somehow missing (e.g. data migration issue)
+                // Single Transaction
                 updatedTransactions.push({
                     id: `tx_${data.invoiceNo}_${Date.now()}`,
-                    date: new Date().toISOString().split('T')[0],
-                    timestamp: new Date().toISOString(),
-                    accountId: 'acc_sales', // Default Sales Account
-                    type: 'INCOME',
+                    date, timestamp, accountId: 'acc_sales', type: 'INCOME',
                     amount: data.financials.netTotal,
-                    description: `Invoice Generation: ${data.invoiceNo}`,
+                    description: `Invoice ${data.invoiceNo}`,
                     referenceId: data.invoiceNo,
-                    paymentMode: data.paymentMode || 'CASH'
+                    paymentMode: (data.paymentMode as 'CASH' | 'BANK') || 'CASH'
                 });
             }
 
@@ -603,23 +618,56 @@ const App: React.FC = () => {
       if (activeCompanyId) {
           return prev.map(c => {
               if (c.id === activeCompanyId) {
-                  // Create accompanying transaction
-                  const newTx: FinancialTransaction = {
-                      id: `tx_${data.invoiceNo}_${Date.now()}`,
-                      date: new Date().toISOString().split('T')[0],
-                      timestamp: new Date().toISOString(),
-                      accountId: 'acc_sales',
-                      type: 'INCOME',
-                      amount: data.financials.netTotal,
-                      description: `Invoice Generation: ${data.invoiceNo}`,
-                      referenceId: data.invoiceNo,
-                      paymentMode: data.paymentMode || 'CASH'
-                  };
+                  // Create accompanying transaction(s)
+                  const timestamp = new Date().toISOString();
+                  const date = new Date().toISOString().split('T')[0];
+                  let newTransactions: FinancialTransaction[] = [];
+
+                  if (data.paymentMode === 'SPLIT' && data.splitDetails) {
+                      if (data.splitDetails.cash > 0) {
+                          newTransactions.push({
+                              id: `tx_${data.invoiceNo}_cash_${Date.now()}`,
+                              date,
+                              timestamp,
+                              accountId: 'acc_sales',
+                              type: 'INCOME',
+                              amount: data.splitDetails.cash,
+                              description: `Invoice ${data.invoiceNo} (Cash Split)`,
+                              referenceId: data.invoiceNo,
+                              paymentMode: 'CASH'
+                          });
+                      }
+                      if (data.splitDetails.bank > 0) {
+                          newTransactions.push({
+                              id: `tx_${data.invoiceNo}_bank_${Date.now()}`,
+                              date,
+                              timestamp,
+                              accountId: 'acc_sales',
+                              type: 'INCOME',
+                              amount: data.splitDetails.bank,
+                              description: `Invoice ${data.invoiceNo} (Bank Split)`,
+                              referenceId: data.invoiceNo,
+                              paymentMode: 'BANK'
+                          });
+                      }
+                  } else {
+                      newTransactions.push({
+                          id: `tx_${data.invoiceNo}_${Date.now()}`,
+                          date,
+                          timestamp,
+                          accountId: 'acc_sales',
+                          type: 'INCOME',
+                          amount: data.financials.netTotal,
+                          description: `Invoice ${data.invoiceNo}`,
+                          referenceId: data.invoiceNo,
+                          paymentMode: (data.paymentMode as 'CASH' | 'BANK') || 'CASH'
+                      });
+                  }
 
                   return { 
                       ...c, 
                       invoices: [data, ...c.invoices],
-                      financialTransactions: [newTx, ...(c.financialTransactions || [])]
+                      financialTransactions: [...newTransactions, ...(c.financialTransactions || [])]
                   };
               }
               return c;
