@@ -151,6 +151,10 @@ const App: React.FC = () => {
     }
   });
   
+  // Admin Search & Filter State
+  const [adminSearchQuery, setAdminSearchQuery] = useState('');
+  const [adminFilter, setAdminFilter] = useState<'ALL' | 'EXPIRING' | 'EXPIRED'>('ALL');
+
   // Branch Management State Helpers for Form
   const [isBranch, setIsBranch] = useState(false);
   const [selectedParentId, setSelectedParentId] = useState<string>('');
@@ -182,6 +186,45 @@ const App: React.FC = () => {
         c.id === activeCompany.id // Fallback for myself
     );
   }, [companies, activeCompany, isSuperAdmin]);
+
+  // Filter Companies for Super Admin Dashboard
+  const filteredAdminCompanies = useMemo(() => {
+      const now = new Date();
+      // Set to beginning of day to avoid time issues
+      now.setHours(0,0,0,0);
+      
+      const thirtyDaysFromNow = new Date(now);
+      thirtyDaysFromNow.setDate(now.getDate() + 30);
+
+      return companies.filter(c => {
+          const expDate = new Date(c.expiryDate);
+          
+          // 1. Search Query
+          const searchLower = adminSearchQuery.toLowerCase();
+          const matchesSearch = (
+              c.settings.companyName.toLowerCase().includes(searchLower) ||
+              c.username.toLowerCase().includes(searchLower) ||
+              (c.settings.location || '').toLowerCase().includes(searchLower)
+          );
+
+          if (!matchesSearch) return false;
+
+          // 2. Filter Tab
+          if (adminFilter === 'EXPIRED') {
+              return expDate < now;
+          }
+          if (adminFilter === 'EXPIRING') {
+              // Expiring in next 30 days AND not already expired
+              return expDate >= now && expDate <= thirtyDaysFromNow;
+          }
+          
+          // ALL
+          return true;
+      }).sort((a, b) => {
+          // Sort by expiry date ascending (urgent first)
+          return new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime();
+      });
+  }, [companies, adminSearchQuery, adminFilter]);
 
   // Aggregate invoices from all related companies
   const allNetworkInvoices = useMemo<DashboardInvoice[]>(() => {
@@ -253,6 +296,196 @@ const App: React.FC = () => {
   }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, view]);
 
   // --- Handlers ---
+  
+    const renderHeader = () => {
+      if(!activeCompany) return null;
+      return (
+        <nav className="bg-blue-900 text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-10">
+          <div className="flex items-center gap-4">
+              <button onClick={() => setIsMenuOpen(true)} className="hover:bg-blue-800 p-1 rounded">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+              </button>
+              <h1 className="text-xl font-bold">{activeCompany.settings.companyName} {activeCompany.settings.location ? `(${activeCompany.settings.location})` : ''}</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="hidden md:inline text-sm opacity-80">Logged in as {activeCompany.username}</span>
+            <button onClick={handleLogout} className="bg-red-600 px-3 py-1 rounded hover:bg-red-500 text-sm">Logout</button>
+          </div>
+        </nav>
+      );
+  };
+
+  const renderSidebar = () => {
+    if (!isMenuOpen || !activeCompany) return null;
+    return (
+        <div className="fixed inset-0 z-50 flex">
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black bg-opacity-50 transition-opacity" onClick={() => setIsMenuOpen(false)}></div>
+            
+            {/* Sidebar Content */}
+            <div className="relative bg-white w-64 h-full shadow-2xl flex flex-col animate-slide-in-left">
+                <div className="p-4 bg-blue-900 text-white flex justify-between items-center">
+                     <h2 className="font-bold text-lg">Menu</h2>
+                     <button onClick={() => setIsMenuOpen(false)} className="text-white hover:text-red-300">
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                         </svg>
+                     </button>
+                </div>
+                
+                <div className="flex-1 py-4 flex flex-col gap-1 overflow-y-auto">
+                    <button onClick={() => handleNavClick('DASHBOARD')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'DASHBOARD' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
+                         </svg>
+                         Dashboard
+                    </button>
+
+                    <button onClick={() => handleNavClick('INVOICES')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'INVOICES' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                         </svg>
+                         Invoices
+                    </button>
+                    
+                    <button onClick={() => handleNavClick('CUSTOMERS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'CUSTOMERS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
+                        </svg>
+                        Customers
+                    </button>
+
+                    <button onClick={() => handleNavClick('ITEMS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'ITEMS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
+                        </svg>
+                        Items
+                    </button>
+
+                    <button onClick={() => handleNavClick('FINANCE')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'FINANCE' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.312-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.312.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                        </svg>
+                        Financial Accounts
+                    </button>
+
+                    <button onClick={() => handleNavClick('BRANCH_MANAGEMENT')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'BRANCH_MANAGEMENT' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10.496 2.132a1 1 0 00-.992 0l-7 4A1 1 0 003 8v7a1 1 0 100 2h14a1 1 0 100-2V8a1 1 0 00.496-1.868l-7-4zM6 9a1 1 0 00-1 1v3a1 1 0 102 0v-3a1 1 0 00-1-1zm3 1a1 1 0 012 0v3a1 1 0 11-2 0v-3zm5-1a1 1 0 00-1 1v3a1 1 0 102 0v-3a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                        Branch Management
+                    </button>
+                    
+                     <div className="border-t my-2"></div>
+                     
+                     <button onClick={handleLogout} className="px-4 py-3 text-left hover:bg-red-50 text-red-600 flex items-center gap-3">
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
+                         </svg>
+                         Logout
+                    </button>
+                </div>
+                
+                <div className="p-4 bg-gray-50 text-xs text-gray-500 border-t">
+                    <p>{activeCompany.settings.companyName} {activeCompany.settings.location ? `(${activeCompany.settings.location})` : ''}</p>
+                    <p className="mt-1">User: {activeCompany.username}</p>
+                </div>
+            </div>
+        </div>
+    );
+  };
+
+  const renderFilterBar = () => {
+      const isBranchUser = activeCompany?.parentId; // Identify if branch user
+      
+      return (
+      <div className="bg-white p-4 rounded shadow mb-6 flex flex-col xl:flex-row gap-4 items-center">
+             <div className="relative w-full xl:w-1/3">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                  <svg className="h-5 w-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </span>
+                <input 
+                  type="text"
+                  placeholder="Search invoice #, name, mobile..."
+                  className="w-full border border-gray-300 rounded pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-300 text-black placeholder-black"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+             </div>
+
+             <div className="flex flex-col md:flex-row gap-2 items-center w-full xl:w-auto">
+                {/* Location Filter */}
+                <select
+                    className={`border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto ${isBranchUser ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    value={dashboardLocationFilter}
+                    onChange={(e) => setDashboardLocationFilter(e.target.value)}
+                    disabled={!!isBranchUser}
+                >
+                    {!isBranchUser && <option value="ALL">All Locations</option>}
+                    {relatedCompanies.map(c => (
+                        <option key={c.id} value={c.id}>
+                            {c.settings.companyName} ({c.settings.location || c.settings.addressLine2 || 'Main'})
+                        </option>
+                    ))}
+                </select>
+
+                {/* Hide Date Range Picker in Customers View */}
+                {view !== 'CUSTOMERS' && view !== 'ITEMS' && (
+                    <>
+                        <div className="bg-gray-200 p-1 rounded-lg flex items-center gap-1 self-start sm:self-auto overflow-x-auto max-w-full">
+                            {(['TODAY', 'WEEK', 'MONTH', 'LAST_MONTH', 'CUSTOM'] as const).map(r => {
+                                let label = '';
+                                switch(r) {
+                                    case 'TODAY': label = 'Today'; break;
+                                    case 'WEEK': label = 'Week'; break;
+                                    case 'MONTH': label = 'Month'; break;
+                                    case 'LAST_MONTH': label = 'Last Month'; break;
+                                    case 'CUSTOM': label = 'Custom'; break;
+                                }
+                                const isActive = dateRange === r;
+                                return (
+                                    <button 
+                                        key={r}
+                                        onClick={() => setDateRange(r)}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
+                                            isActive 
+                                            ? 'bg-white text-blue-900 shadow-sm' 
+                                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-300/50'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                )
+                            })}
+                        </div>
+
+                        {dateRange === 'CUSTOM' && (
+                        <div className="flex gap-2 items-center">
+                            <input 
+                            type="date" 
+                            className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
+                            value={customStart}
+                            onChange={(e) => setCustomStart(e.target.value)}
+                            />
+                            <span className="text-gray-500">-</span>
+                            <input 
+                            type="date" 
+                            className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
+                            value={customEnd}
+                            onChange={(e) => setCustomEnd(e.target.value)}
+                            />
+                        </div>
+                        )}
+                    </>
+                )}
+             </div>
+          </div>
+  )};
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1337,29 +1570,144 @@ const App: React.FC = () => {
       );
   };
 
-  const renderCustomers = () => {
+  const renderBranchManagement = () => {
+      if (!activeCompany) return null;
+
+      // Identify HQ and Branches from the related network
+      const headOffice = relatedCompanies.find(c => !c.parentId);
+      const branches = relatedCompanies.filter(c => c.parentId);
+
       return (
         <div className="min-h-screen bg-gray-50">
             {renderHeader()}
             {renderSidebar()}
-            {renderEditCustomerModal()}
             
+            <main className="max-w-7xl mx-auto p-4 md:p-8">
+                 {/* Top Navigation / Header */}
+                 <div className="flex items-center gap-4 mb-6">
+                    <button 
+                        onClick={() => setView('DASHBOARD')} 
+                        className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                        <span>&larr;</span> Back to Dashboard
+                    </button>
+                    <h2 className="text-3xl font-bold text-gray-900">Branch Management</h2>
+                 </div>
+
+                 {/* HEAD OFFICE SECTION */}
+                 <div className="mb-10">
+                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Head Office</h3>
+                    {headOffice ? (
+                        <div className={`bg-white rounded shadow-sm border p-8 flex flex-col md:flex-row justify-between items-start md:items-center relative ${headOffice.id === activeCompany.id ? 'border-l-[6px] border-l-blue-900 border-t border-r border-b border-gray-200' : 'border-gray-200'}`}>
+                            <div>
+                                <h4 className="text-2xl font-bold text-gray-900 mb-2 uppercase tracking-tight">
+                                    {headOffice.settings.companyName} {headOffice.settings.location ? `(${headOffice.settings.location})` : ''}
+                                </h4>
+                                <p className="text-sm text-gray-500 uppercase font-medium mb-1">
+                                    {headOffice.settings.location || 'RIYADH'}, {headOffice.settings.addressLine1}
+                                </p>
+                                <div className="text-sm text-gray-500 flex items-center gap-2">
+                                    <span>Phone: {headOffice.settings.phone1}</span>
+                                </div>
+                            </div>
+                            <div className="mt-6 md:mt-0 flex gap-8">
+                                <div className="flex flex-col items-end">
+                                    <span className="text-gray-400 text-[10px] uppercase font-bold tracking-wider mb-1">Role</span>
+                                    <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold uppercase">HEADQUARTERS</span>
+                                </div>
+                                <div className="flex flex-col items-end">
+                                    <span className="text-gray-400 text-[10px] uppercase font-bold tracking-wider mb-1">Status</span>
+                                    {headOffice.id === activeCompany.id ? (
+                                        <span className="text-green-600 font-bold text-sm">Active (You)</span>
+                                    ) : (
+                                        <span className="text-gray-500 font-medium text-sm">Online</span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="p-4 bg-yellow-50 text-yellow-800 rounded border border-yellow-200">
+                            Head Office information not available.
+                        </div>
+                    )}
+                 </div>
+
+                 {/* BRANCHES SECTION */}
+                 <div>
+                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Network Branches ({branches.length})</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+                        {branches.map(branch => {
+                            const isActive = branch.id === activeCompany.id;
+                            return (
+                                <div key={branch.id} className={`bg-white rounded shadow-sm border flex flex-col transition-shadow duration-200 ${isActive ? 'ring-2 ring-blue-500 border-transparent' : 'border-gray-200 hover:shadow-md'}`}>
+                                    <div className="p-6 flex-1">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h4 className="text-lg font-bold text-gray-900 uppercase pr-2">
+                                                {branch.settings.companyName}
+                                            </h4>
+                                            {isActive ? (
+                                                <span className="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-1 rounded-full uppercase border border-green-200 whitespace-nowrap">Active</span>
+                                            ) : (
+                                                <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-1 rounded-full uppercase border border-gray-200 whitespace-nowrap">Online</span>
+                                            )}
+                                        </div>
+                                        <p className="text-sm text-gray-500 uppercase mb-4 font-medium">
+                                            {branch.settings.location || 'Unknown'}
+                                        </p>
+                                        <div className="flex items-center gap-2 text-gray-500 text-sm">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+                                            </svg>
+                                            {branch.settings.phone1}
+                                        </div>
+                                    </div>
+                                    <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-between items-center rounded-b-lg">
+                                        <span className="text-xs text-gray-500">
+                                            User: <span className="font-medium text-gray-700">{branch.username}</span>
+                                            {isActive && <span className="ml-2 text-green-600 font-bold">(You)</span>}
+                                        </span>
+                                        <span className="bg-gray-200 text-gray-600 px-2 py-1 rounded text-[10px] font-bold uppercase border border-gray-300">
+                                            Branch Office
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {branches.length === 0 && (
+                            <div className="col-span-2 p-8 text-center text-gray-400 bg-white rounded border border-dashed border-gray-300">
+                                No branches found.
+                            </div>
+                        )}
+                    </div>
+                 </div>
+            </main>
+        </div>
+      );
+  }
+
+  const renderCustomers = () => {
+    return (
+        <div className="min-h-screen bg-gray-50">
+            {renderHeader()}
+            {renderSidebar()}
+            {renderEditCustomerModal()}
+
             <main className="max-w-7xl mx-auto p-4 md:p-6">
-                 <div className="flex justify-between items-center mb-6">
-                     <div className="flex items-center gap-4">
+                <div className="flex justify-between items-center mb-6">
+                    <div className="flex items-center gap-4">
                         <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
                             &larr; Back to Dashboard
                         </button>
-                        <h2 className="text-2xl font-bold text-gray-800">Customers Directory</h2>
-                     </div>
-                 </div>
-                 
-                 {renderFilterBar()}
+                        <h2 className="text-2xl font-bold text-gray-800">Customer Management</h2>
+                    </div>
+                    {/* Potential Export Button Here */}
+                </div>
 
-                 <div className="bg-white rounded shadow overflow-hidden">
+                {renderFilterBar()}
+
+                <div className="bg-white rounded shadow overflow-hidden">
                     <div className="px-6 py-4 border-b flex justify-between items-center">
-                        <h3 className="font-bold text-gray-700">Customers List</h3>
-                        <span className="text-xs text-gray-500">{customers.length} Found</span>
+                        <h3 className="font-bold text-gray-700">All Customers ({customers.length})</h3>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
@@ -1367,790 +1715,187 @@ const App: React.FC = () => {
                                 <tr>
                                     <th className="p-4 border-b">Name</th>
                                     <th className="p-4 border-b">Mobile</th>
-                                    <th className="p-4 border-b">ID No</th>
+                                    <th className="p-4 border-b">ID Number</th>
+                                    <th className="p-4 border-b">VAT No</th>
                                     <th className="p-4 border-b">Location</th>
-                                    <th className="p-4 border-b text-center">Shipments</th>
-                                    <th className="p-4 border-b text-right">Actions</th>
+                                    <th className="p-4 border-b text-center">Total Shipments</th>
+                                    <th className="p-4 border-b text-center">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {customers.length > 0 ? (
-                                    customers.map((cust) => (
-                                        <tr key={cust.key} className="hover:bg-gray-50 border-b last:border-0 cursor-pointer" onClick={() => {
-                                            setSelectedCustomer(cust);
-                                            setView('CUSTOMER_DETAIL');
-                                        }}>
-                                            <td className="p-4 font-bold text-gray-800">{cust.name}</td>
-                                            <td className="p-4 text-gray-600">{cust.mobile}</td>
-                                            <td className="p-4 text-gray-600">{cust.idNo || '-'}</td>
-                                            <td className="p-4 text-xs text-blue-600 bg-blue-50 rounded px-2 w-fit">{cust.location}</td>
-                                            <td className="p-4 text-center font-bold">{cust.totalShipments}</td>
-                                            <td className="p-4 text-right">
+                                    customers.map((customer) => (
+                                        <tr 
+                                            key={customer.key} 
+                                            className="hover:bg-blue-50 cursor-pointer transition-colors"
+                                            onClick={() => {
+                                                setSelectedCustomer(customer);
+                                                setView('CUSTOMER_DETAIL');
+                                            }}
+                                        >
+                                            <td className="p-4 border-b font-bold text-gray-800">{customer.name}</td>
+                                            <td className="p-4 border-b text-gray-600">{customer.mobile}</td>
+                                            <td className="p-4 border-b font-mono text-gray-500">{customer.idNo || '-'}</td>
+                                            <td className="p-4 border-b text-gray-500">{customer.vatNo || '-'}</td>
+                                            <td className="p-4 border-b text-xs text-blue-800 font-semibold bg-blue-50 rounded w-max px-2 py-1 mx-4 block">
+                                                {customer.location}
+                                            </td>
+                                            <td className="p-4 border-b text-center">
+                                                <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded font-bold">{customer.totalShipments}</span>
+                                            </td>
+                                            <td className="p-4 border-b text-center">
                                                 <button 
-                                                    onClick={(e) => handleEditCustomerClick(e, cust)}
-                                                    className="text-blue-600 hover:text-blue-800 font-medium px-3 py-1 hover:bg-blue-100 rounded"
+                                                    onClick={(e) => handleEditCustomerClick(e, customer)}
+                                                    className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-100 rounded transition-colors"
+                                                    title="Edit Customer Details"
                                                 >
-                                                    Edit
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                    </svg>
                                                 </button>
                                             </td>
                                         </tr>
                                     ))
                                 ) : (
-                                    <tr><td colSpan={6} className="p-8 text-center text-gray-500">No customers found.</td></tr>
+                                    <tr>
+                                        <td colSpan={7} className="p-8 text-center text-gray-500">No customers found.</td>
+                                    </tr>
                                 )}
                             </tbody>
                         </table>
                     </div>
-                 </div>
+                </div>
             </main>
         </div>
-      );
+    );
   };
 
   const renderCustomerDetail = () => {
-      if (!selectedCustomer) return null;
+    if (!selectedCustomer) return null;
 
-      // Find invoices for this customer
-      const customerInvoices = allNetworkInvoices.filter(inv => {
-          if (inv._companyId !== selectedCustomer.companyId) return false;
-          const shipper = inv.shipper;
-          const identityKey = shipper.idNo && shipper.idNo.length > 3 
-            ? `ID:${shipper.idNo}` 
-            : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
-          const key = `${identityKey}_${inv._companyId}`;
-          return key === selectedCustomer.key;
-      });
+    // Filter invoices for this specific customer
+    const customerInvoices = allNetworkInvoices
+        .filter(inv => inv._companyId === selectedCustomer.companyId)
+        .filter(inv => {
+             const shipper = inv.shipper;
+             const identityKey = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
+             const key = `${identityKey}_${inv._companyId}`;
+             return key === selectedCustomer.key;
+        })
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-      // Sort by date desc
-      customerInvoices.sort((a, b) => parseDateStr(b.date).getTime() - parseDateStr(a.date).getTime());
+    const totalSpent = customerInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
 
-      return (
+    return (
         <div className="min-h-screen bg-gray-50">
             {renderHeader()}
             {renderSidebar()}
-            
+            {renderHistoryModal()}
+
             <main className="max-w-7xl mx-auto p-4 md:p-6">
-                 <div className="flex justify-between items-center mb-6">
-                     <div className="flex items-center gap-4">
-                        <button onClick={() => setView('CUSTOMERS')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                            &larr; Back to List
-                        </button>
-                        <h2 className="text-2xl font-bold text-gray-800">Customer Profile</h2>
-                     </div>
-                     <button 
-                        onClick={(e) => handleEditCustomerClick(e, selectedCustomer)}
-                        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 font-bold"
-                     >
-                        Edit Details
-                     </button>
-                 </div>
+                <div className="flex items-center gap-4 mb-6">
+                    <button onClick={() => setView('CUSTOMERS')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                        &larr; Back to Customers
+                    </button>
+                    <h2 className="text-2xl font-bold text-gray-800">Customer Profile</h2>
+                </div>
 
-                 <div className="bg-white p-6 rounded shadow mb-6 border-l-4 border-blue-900">
-                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                         <div>
-                             <label className="block text-xs text-gray-500 uppercase font-bold">Name</label>
-                             <div className="text-xl font-bold text-gray-800">{selectedCustomer.name}</div>
-                         </div>
-                         <div>
-                             <label className="block text-xs text-gray-500 uppercase font-bold">Mobile</label>
-                             <div className="text-lg text-gray-800">{selectedCustomer.mobile}</div>
-                         </div>
-                         <div>
-                             <label className="block text-xs text-gray-500 uppercase font-bold">ID Number</label>
-                             <div className="text-lg text-gray-800">{selectedCustomer.idNo || 'N/A'}</div>
-                         </div>
-                          <div>
-                             <label className="block text-xs text-gray-500 uppercase font-bold">Total Shipments</label>
-                             <div className="text-xl font-bold text-blue-900">{customerInvoices.length}</div>
-                         </div>
-                     </div>
-                 </div>
-
-                 <div className="bg-white rounded shadow overflow-hidden">
-                    <div className="px-6 py-4 border-b">
-                        <h3 className="font-bold text-gray-700">Shipment History</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    {/* Profile Card */}
+                    <div className="bg-white p-6 rounded shadow-sm border-t-4 border-blue-900 col-span-1">
+                        <div className="flex flex-col items-center text-center mb-6">
+                            <div className="h-20 w-20 bg-blue-100 rounded-full flex items-center justify-center text-blue-900 text-3xl font-bold mb-3">
+                                {selectedCustomer.name.charAt(0).toUpperCase()}
+                            </div>
+                            <h3 className="text-xl font-bold text-gray-900">{selectedCustomer.name}</h3>
+                            <p className="text-sm text-gray-500">{selectedCustomer.location}</p>
+                        </div>
+                        <div className="space-y-3 text-sm">
+                            <div className="flex justify-between border-b pb-2">
+                                <span className="text-gray-500">Mobile</span>
+                                <span className="font-medium">{selectedCustomer.mobile}</span>
+                            </div>
+                            <div className="flex justify-between border-b pb-2">
+                                <span className="text-gray-500">ID Number</span>
+                                <span className="font-mono">{selectedCustomer.idNo || '-'}</span>
+                            </div>
+                             <div className="flex justify-between border-b pb-2">
+                                <span className="text-gray-500">VAT Number</span>
+                                <span className="font-mono">{selectedCustomer.vatNo || '-'}</span>
+                            </div>
+                            <div className="flex justify-between pt-2">
+                                <span className="text-gray-500">Total Spent</span>
+                                <span className="font-bold text-green-600">SAR {totalSpent.toFixed(2)}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-50 text-gray-600">
-                                <tr>
-                                    <th className="p-4 border-b">Invoice #</th>
-                                    <th className="p-4 border-b">Date</th>
-                                    <th className="p-4 border-b">Consignee</th>
-                                    <th className="p-4 border-b">Status</th>
-                                    <th className="p-4 border-b text-right">Amount</th>
-                                    <th className="p-4 border-b text-center">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {customerInvoices.map((inv, idx) => (
-                                    <tr key={idx} className="hover:bg-gray-50 border-b last:border-0">
-                                        <td className="p-4 font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
-                                        <td className="p-4 text-gray-600">{inv.date}</td>
-                                        <td className="p-4 font-medium">{inv.consignee.name}</td>
-                                        <td className="p-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                inv.status === 'Delivered' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
-                                            }`}>
-                                                {inv.status}
-                                            </span>
-                                        </td>
-                                        <td className="p-4 text-right font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
-                                        <td className="p-4 text-center">
-                                            <button 
-                                                onClick={() => {
-                                                    setCurrentInvoice(inv);
-                                                    setView('PREVIEW_INVOICE');
-                                                }}
-                                                className="text-blue-600 hover:underline"
-                                            >
-                                                View
-                                            </button>
-                                        </td>
+
+                    {/* Invoices List */}
+                    <div className="bg-white rounded shadow-sm col-span-1 md:col-span-2 overflow-hidden">
+                        <div className="px-6 py-4 border-b bg-gray-50">
+                            <h3 className="font-bold text-gray-700">Shipment History</h3>
+                        </div>
+                        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-100 text-gray-600 sticky top-0">
+                                    <tr>
+                                        <th className="p-3 border-b">Invoice #</th>
+                                        <th className="p-3 border-b">Date</th>
+                                        <th className="p-3 border-b">Status</th>
+                                        <th className="p-3 border-b">Destination</th>
+                                        <th className="p-3 border-b text-right">Amount</th>
+                                        <th className="p-3 border-b"></th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    {customerInvoices.map((inv, idx) => (
+                                        <tr key={idx} className="hover:bg-gray-50 border-b last:border-0">
+                                            <td className="p-3 font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
+                                            <td className="p-3 text-gray-600">{inv.date}</td>
+                                            <td className="p-3">
+                                                 <button 
+                                                      onClick={() => setViewingHistoryInvoice(inv)}
+                                                      className={`px-2 py-1 rounded text-xs font-bold hover:opacity-80 transition shadow-sm ${
+                                                          inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+                                                          inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
+                                                          'bg-gray-100 text-gray-800'
+                                                      }`}
+                                                  >
+                                                      {inv.status || 'Received'}
+                                                  </button>
+                                            </td>
+                                            <td className="p-3 text-gray-600 max-w-[150px] truncate" title={inv.consignee.address}>
+                                                {inv.consignee.post || inv.consignee.address}
+                                            </td>
+                                            <td className="p-3 text-right font-bold text-gray-800">
+                                                {inv.financials.netTotal.toFixed(2)}
+                                            </td>
+                                            <td className="p-3 text-right">
+                                                 <button 
+                                                      onClick={() => {
+                                                        setCurrentInvoice(inv);
+                                                        setView('PREVIEW_INVOICE');
+                                                      }} 
+                                                      className="text-gray-400 hover:text-blue-600"
+                                                      title="View Invoice"
+                                                   >
+                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                                                        <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                                                      </svg>
+                                                 </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                 </div>
+                </div>
             </main>
         </div>
-      );
-  };
-
-  if (view === 'LOGIN') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="bg-white p-8 rounded shadow-md w-96">
-          <div className="text-center mb-5">
-            <h1 className="text-3xl font-bold text-blue-700 mb-[10px]">QOVOZ</h1>
-            <p className="text-sm text-gray-500">Logistics Management System</p>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Username</label>
-              <input 
-                type="text" 
-                className="mt-1 block w-full border border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Password</label>
-              <input 
-                type="password" 
-                className="mt-1 block w-full border border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-            {loginError && <p className="text-red-500 text-xs">{loginError}</p>}
-            <button type="submit" className="w-full bg-blue-800 text-white p-2 rounded hover:bg-blue-600 transition">
-              Login
-            </button>
-          </form>
-          <div className="mt-4 text-xs text-center text-gray-400">
-            Secure Login by Qovoz
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Super Admin View to Create Companies
-  if (view === 'SETTINGS' && isSuperAdmin) {
-    return (
-       <div className="min-h-screen bg-gray-50">
-        <nav className="bg-blue-900 text-white p-4 shadow-lg sticky top-0 z-10">
-          <div className="max-w-4xl mx-auto flex justify-between items-center">
-            <h1 className="text-xl font-bold">Qovoz Admin Panel</h1>
-            <button onClick={handleLogout} className="bg-red-600 px-3 py-1 rounded hover:bg-red-500 text-sm">
-              Logout
-            </button>
-          </div>
-        </nav>
-
-        <main className="max-w-4xl mx-auto p-6">
-          <div className="bg-white rounded shadow-lg overflow-hidden">
-            <div className="p-4 bg-gray-100 border-b flex justify-between items-center">
-               <div>
-                   <h2 className="text-lg font-bold text-gray-800">{editingCompanyId ? 'Edit Company' : 'Create New Company'}</h2>
-                   <p className="text-xs text-gray-500">{editingCompanyId ? 'Update details for the selected company.' : 'Fill in the details to create a new isolated company account.'}</p>
-               </div>
-               {editingCompanyId && (
-                   <button onClick={handleCancelEdit} className="text-sm text-red-600 underline">Cancel Edit</button>
-               )}
-            </div>
-            
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* ... (Existing company form code) ... */}
-                <div className="col-span-1 md:col-span-2">
-                    <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">Company Details</h3>
-                </div>
-
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Company Name (English) *</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        value={newCompany.settings?.companyName || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, companyName: e.target.value}})}
-                    />
-                     {/* Branch Management Tickbox */}
-                     <div className="mt-2 flex items-center gap-2">
-                        <input 
-                            type="checkbox" 
-                            id="isBranch" 
-                            checked={isBranch}
-                            onChange={(e) => {
-                                setIsBranch(e.target.checked);
-                                if (!e.target.checked) setSelectedParentId('');
-                            }}
-                            className="h-4 w-4 text-blue-600"
-                        />
-                        <label htmlFor="isBranch" className="text-xs text-gray-600 cursor-pointer select-none">Is this a Sub-Branch?</label>
-                    </div>
-                    {isBranch && (
-                        <div className="mt-1 animate-fade-in">
-                            <label className="block text-xs font-bold text-gray-700 mb-1">Select Parent Company</label>
-                            <select 
-                                className="w-full border-gray-300 rounded p-1 bg-gray-300 text-black text-xs"
-                                value={selectedParentId}
-                                onChange={(e) => setSelectedParentId(e.target.value)}
-                            >
-                                <option value="">-- Select Parent --</option>
-                                {companies
-                                    .filter(c => c.id !== editingCompanyId) // Prevent self-selection
-                                    .map(c => (
-                                        <option key={c.id} value={c.id}>{c.settings.companyName}</option>
-                                    ))
-                                }
-                            </select>
-                        </div>
-                    )}
-                </div>
-                
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Company Name (Arabic)</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-right font-arabic"
-                        value={newCompany.settings?.companyArabicName || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, companyArabicName: e.target.value}})}
-                    />
-                </div>
-                
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 1 (English)</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        value={newCompany.settings?.addressLine1 || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1: e.target.value}})}
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 1 (Arabic)</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-right"
-                        value={newCompany.settings?.addressLine1Arabic || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1Arabic: e.target.value}})}
-                    />
-                </div>
-                
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 2 (English)</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        value={newCompany.settings?.addressLine2 || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine2: e.target.value}})}
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 2 (Arabic)</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-right"
-                        value={newCompany.settings?.addressLine2Arabic || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine2Arabic: e.target.value}})}
-                    />
-                </div>
-
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Primary Mobile (English)</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        value={newCompany.settings?.phone1 || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, phone1: e.target.value}})}
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Secondary Mobile</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        value={newCompany.settings?.phone2 || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, phone2: e.target.value}})}
-                    />
-                </div>
-                
-                 {/* Invoice Prefix & Start Number */}
-                 <div className="flex gap-4">
-                     <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Prefix</label>
-                        <input 
-                            type="text" 
-                            placeholder="e.g. HQ-"
-                            className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black font-mono uppercase"
-                            value={newCompany.settings?.invoicePrefix || ''}
-                            onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, invoicePrefix: e.target.value.toUpperCase()}})}
-                        />
-                     </div>
-                     <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Start No.</label>
-                        <input 
-                            type="number" 
-                            placeholder="1000"
-                            className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black font-mono"
-                            value={newCompany.settings?.invoiceStartNumber || ''}
-                            onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, invoiceStartNumber: parseInt(e.target.value)}})}
-                        />
-                     </div>
-                 </div>
-
-                {/* Location Input */}
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Location / Branch *</label>
-                    <input 
-                        type="text" 
-                        placeholder="e.g. Riyadh, Dammam"
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        value={newCompany.settings?.location || ''}
-                        onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, location: e.target.value}})}
-                    />
-                </div>
-                
-                {/* VAT Section */}
-                <div className="bg-gray-200 p-2 rounded border border-gray-300 col-span-1 md:col-span-2 flex flex-col gap-2">
-                     <div className="flex items-center gap-2">
-                         <input 
-                             type="checkbox" 
-                             id="enableVat"
-                             checked={newCompany.settings?.isVatEnabled || false}
-                             onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, isVatEnabled: e.target.checked}})}
-                             className="h-4 w-4 text-blue-600 rounded"
-                         />
-                         <label htmlFor="enableVat" className="text-sm font-medium text-gray-700 select-none cursor-pointer">Enable VAT Calculation</label>
-                     </div>
-                     <div>
-                        <label className={`block text-sm font-medium mb-1 ${newCompany.settings?.isVatEnabled ? 'text-gray-700' : 'text-gray-400'}`}>VAT Number</label>
-                        <input 
-                            type="text" 
-                            className={`w-full border-gray-300 rounded p-2 text-black placeholder-black ${newCompany.settings?.isVatEnabled ? 'bg-gray-300' : 'bg-gray-200 text-gray-400'}`}
-                            value={newCompany.settings?.vatnoc || ''}
-                            onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, vatnoc: e.target.value}})}
-                            disabled={!newCompany.settings?.isVatEnabled}
-                            placeholder={newCompany.settings?.isVatEnabled ? "Enter VAT Number" : "Enable checkbox to enter VAT"}
-                        />
-                    </div>
-                </div>
-
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Logo (260px * 110px)</label>
-                    <div className="flex flex-col gap-2">
-                         <input 
-                             type="file" 
-                             accept="image/png, image/jpeg"
-                             className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black text-sm"
-                             onChange={(e) => {
-                                 const file = e.target.files?.[0];
-                                 if (file) {
-                                     const reader = new FileReader();
-                                     reader.onloadend = () => {
-                                         setNewCompany(prev => ({
-                                             ...prev,
-                                             settings: {
-                                                 ...prev.settings,
-                                                 logoUrl: reader.result as string
-                                             }
-                                         }));
-                                     };
-                                     reader.readAsDataURL(file);
-                                 }
-                             }}
-                         />
-                         {newCompany.settings?.logoUrl && (
-                             <div className="relative inline-block w-fit group">
-                                <img src={newCompany.settings.logoUrl} alt="Logo Preview" className="h-16 w-auto object-contain border bg-white p-1" />
-                                <button 
-                                    onClick={() => setNewCompany(prev => ({...prev, settings: {...prev.settings, logoUrl: ''}}))}
-                                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow hover:bg-red-600"
-                                    title="Remove Logo"
-                                >
-                                    &times;
-                                </button>
-                             </div>
-                         )}
-                    </div>
-                </div>
-
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Brand Color</label>
-                    <div className="flex items-center gap-2">
-                        <input 
-                            type="color" 
-                            className="h-10 w-20 p-1 border border-gray-300 rounded cursor-pointer"
-                            value={newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR} 
-                            onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, brandColor: e.target.value}})}
-                        />
-                        <span className="text-sm text-gray-500 font-mono">{newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">Used for headings, borders, and accents on the invoice.</p>
-                </div>
-
-                {/* Terms and Conditions Section */}
-                <div className="col-span-1 md:col-span-2 mt-2">
-                    <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">Invoice Terms & Conditions</h3>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">T&C Warning Header (Center Bold)</label>
-                            <textarea 
-                                rows={2}
-                                className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-sm"
-                                value={newCompany.settings?.tcHeader || ''}
-                                onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, tcHeader: e.target.value}})}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">T&C Text (English)</label>
-                            <textarea 
-                                rows={4}
-                                className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-sm"
-                                value={newCompany.settings?.tcEnglish || ''}
-                                onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, tcEnglish: e.target.value}})}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">T&C Text (Arabic)</label>
-                            <textarea 
-                                rows={4}
-                                className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black text-sm text-right font-arabic"
-                                value={newCompany.settings?.tcArabic || ''}
-                                onChange={(e) => setNewCompany({...newCompany, settings: {...newCompany.settings, tcArabic: e.target.value}})}
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Shipment Types Section */}
-                <div className="col-span-1 md:col-span-2 mt-2">
-                    <h3 className="font-bold text-blue-900 border-b pb-2 mb-2">Shipment Types</h3>
-                    <div className="flex gap-2 mb-3 bg-gray-200 p-2 rounded items-end">
-                        <div className="flex-1">
-                            <label className="block text-sm text-gray-700">Name</label>
-                            <input 
-                                placeholder="e.g. IND AIR" 
-                                className="w-full border-gray-300 p-1 rounded text-sm bg-gray-300 text-black placeholder-black"
-                                value={tempShipmentName}
-                                onChange={e => setTempShipmentName(e.target.value)}
-                            />
-                        </div>
-                        <div className="w-24">
-                            <label className="block text-sm text-gray-700">Value</label>
-                            <input 
-                                placeholder="e.g. 10" 
-                                type="number"
-                                className="w-full border-gray-300 p-1 rounded text-sm bg-gray-300 text-black placeholder-black"
-                                value={tempShipmentValue}
-                                onChange={e => setTempShipmentValue(e.target.value)}
-                            />
-                        </div>
-                        <button onClick={addShipmentType} className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-500 h-8 text-sm">Add</button>
-                    </div>
-                    
-                    <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {(newCompany.settings?.shipmentTypes || []).length === 0 && (
-                            <p className="text-gray-500 text-xs italic">No shipment types added.</p>
-                        )}
-                        {(newCompany.settings?.shipmentTypes || []).map((type, idx) => (
-                            <div key={idx} className="flex justify-between items-center bg-gray-100 p-2 rounded border">
-                                <span className="text-gray-700 font-normal">{type.name} <span className="text-gray-700 font-normal">({type.value})</span></span>
-                                <button onClick={() => removeShipmentType(idx)} className="text-red-500 font-bold hover:bg-red-100 rounded px-2">&times;</button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Account Section */}
-                <div className="col-span-1 md:col-span-2 mt-4">
-                    <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">Account Credentials</h3>
-                </div>
-
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Admin Username *</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        value={newCompany.username || ''}
-                        onChange={(e) => setNewCompany({...newCompany, username: e.target.value})}
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Admin Password *</label>
-                    <input 
-                        type="text" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        value={newCompany.password || ''}
-                        onChange={(e) => setNewCompany({...newCompany, password: e.target.value})}
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Expiry Date</label>
-                    <input 
-                        type="date" 
-                        className="w-full border-gray-300 rounded p-2 bg-gray-300 text-black placeholder-black"
-                        value={newCompany.expiryDate || ''}
-                        onChange={(e) => setNewCompany({...newCompany, expiryDate: e.target.value})}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Default is 1 year from today.</p>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 mt-6">
-                    <button 
-                        onClick={handleSaveCompany}
-                        className={`w-full text-white font-bold py-3 rounded shadow transition ${editingCompanyId ? 'bg-green-700 hover:bg-green-600' : 'bg-blue-800 hover:bg-blue-600'}`}
-                    >
-                        {editingCompanyId ? 'Update Company' : 'Create Company'}
-                    </button>
-                </div>
-
-            </div>
-            
-            <div className="bg-gray-50 p-6 border-t">
-                 <h3 className="font-bold text-gray-600 mb-2">Existing Companies ({companies.length})</h3>
-                 <div className="space-y-2">
-                     {companies.map(c => (
-                         <div key={c.id} className="bg-white border p-3 rounded flex justify-between items-center text-sm shadow-sm">
-                             <div>
-                                 <span className="font-bold text-gray-800 block">
-                                    {c.settings.companyName} {c.settings.location ? `(${c.settings.location})` : ''}
-                                 </span>
-                                 <div className="text-gray-500 text-xs">
-                                     User: {c.username} | Exp: {c.expiryDate}
-                                     {c.parentId && <span className="ml-2 text-blue-600 bg-blue-50 px-1 rounded border border-blue-200">Sub-Branch</span>}
-                                 </div>
-                             </div>
-                             <div className="flex gap-2">
-                                <button 
-                                    onClick={() => handleEditCompany(c)}
-                                    className="bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300 transition"
-                                >
-                                    Edit
-                                </button>
-                             </div>
-                         </div>
-                     ))}
-                 </div>
-            </div>
-          </div>
-        </main>
-       </div>
-    );
-  }
-
-  const renderSidebar = () => {
-    if (!isMenuOpen || !activeCompany) return null;
-    return (
-        <div className="fixed inset-0 z-50 flex">
-            {/* Backdrop */}
-            <div className="absolute inset-0 bg-black bg-opacity-50 transition-opacity" onClick={() => setIsMenuOpen(false)}></div>
-            
-            {/* Sidebar Content */}
-            <div className="relative bg-white w-64 h-full shadow-2xl flex flex-col animate-slide-in-left">
-                <div className="p-4 bg-blue-900 text-white flex justify-between items-center">
-                     <h2 className="font-bold text-lg">Menu</h2>
-                     <button onClick={() => setIsMenuOpen(false)} className="text-white hover:text-red-300">
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                         </svg>
-                     </button>
-                </div>
-                
-                <div className="flex-1 py-4 flex flex-col gap-1 overflow-y-auto">
-                    <button onClick={() => handleNavClick('DASHBOARD')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'DASHBOARD' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
-                         </svg>
-                         Dashboard
-                    </button>
-
-                    <button onClick={() => handleNavClick('INVOICES')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'INVOICES' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-                         </svg>
-                         Invoices
-                    </button>
-                    
-                    <button onClick={() => handleNavClick('CUSTOMERS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'CUSTOMERS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
-                        </svg>
-                        Customers
-                    </button>
-
-                    <button onClick={() => handleNavClick('ITEMS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'ITEMS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
-                        </svg>
-                        Items
-                    </button>
-
-                    <button onClick={() => handleNavClick('FINANCE')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'FINANCE' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.312-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.312.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
-                        </svg>
-                        Financial Accounts
-                    </button>
-
-                    <button onClick={() => handleNavClick('BRANCH_MANAGEMENT')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'BRANCH_MANAGEMENT' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M10.496 2.132a1 1 0 00-.992 0l-7 4A1 1 0 003 8v7a1 1 0 100 2h14a1 1 0 100-2V8a1 1 0 00.496-1.868l-7-4zM6 9a1 1 0 00-1 1v3a1 1 0 102 0v-3a1 1 0 00-1-1zm3 1a1 1 0 012 0v3a1 1 0 11-2 0v-3zm5-1a1 1 0 00-1 1v3a1 1 0 102 0v-3a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                        Branch Management
-                    </button>
-                    
-                     <div className="border-t my-2"></div>
-                     
-                     <button onClick={handleLogout} className="px-4 py-3 text-left hover:bg-red-50 text-red-600 flex items-center gap-3">
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
-                         </svg>
-                         Logout
-                    </button>
-                </div>
-                
-                <div className="p-4 bg-gray-50 text-xs text-gray-500 border-t">
-                    <p>{activeCompany.settings.companyName} {activeCompany.settings.location ? `(${activeCompany.settings.location})` : ''}</p>
-                    <p className="mt-1">User: {activeCompany.username}</p>
-                </div>
-            </div>
-        </div>
     );
   };
-
-  const renderHeader = () => {
-      if(!activeCompany) return null;
-      return (
-        <nav className="bg-blue-900 text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-10">
-          <div className="flex items-center gap-4">
-              <button onClick={() => setIsMenuOpen(true)} className="hover:bg-blue-800 p-1 rounded">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
-              </button>
-              <h1 className="text-xl font-bold">{activeCompany.settings.companyName} {activeCompany.settings.location ? `(${activeCompany.settings.location})` : ''}</h1>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="hidden md:inline text-sm opacity-80">Logged in as {activeCompany.username}</span>
-            <button onClick={handleLogout} className="bg-red-600 px-3 py-1 rounded hover:bg-red-500 text-sm">Logout</button>
-          </div>
-        </nav>
-      );
-  };
-
-  const renderFilterBar = () => {
-      const isBranchUser = activeCompany?.parentId; // Identify if branch user
-      
-      return (
-      <div className="bg-white p-4 rounded shadow mb-6 flex flex-col xl:flex-row gap-4 items-center">
-             <div className="relative w-full xl:w-1/3">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                  <svg className="h-5 w-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </span>
-                <input 
-                  type="text"
-                  placeholder="Search invoice #, name, mobile..."
-                  className="w-full border border-gray-300 rounded pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-300 text-black placeholder-black"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-             </div>
-
-             <div className="flex flex-col md:flex-row gap-2 items-center w-full xl:w-auto">
-                {/* Location Filter */}
-                <select
-                    className={`border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto ${isBranchUser ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    value={dashboardLocationFilter}
-                    onChange={(e) => setDashboardLocationFilter(e.target.value)}
-                    disabled={!!isBranchUser}
-                >
-                    {!isBranchUser && <option value="ALL">All Locations</option>}
-                    {relatedCompanies.map(c => (
-                        <option key={c.id} value={c.id}>
-                            {c.settings.companyName} ({c.settings.location || c.settings.addressLine2 || 'Main'})
-                        </option>
-                    ))}
-                </select>
-
-                {/* Hide Date Range Picker in Customers View */}
-                {view !== 'CUSTOMERS' && view !== 'ITEMS' && (
-                    <>
-                        <div className="bg-gray-200 p-1 rounded-lg flex items-center gap-1 self-start sm:self-auto overflow-x-auto max-w-full">
-                            {(['TODAY', 'WEEK', 'MONTH', 'LAST_MONTH', 'CUSTOM'] as const).map(r => {
-                                let label = '';
-                                switch(r) {
-                                    case 'TODAY': label = 'Today'; break;
-                                    case 'WEEK': label = 'Week'; break;
-                                    case 'MONTH': label = 'Month'; break;
-                                    case 'LAST_MONTH': label = 'Last Month'; break;
-                                    case 'CUSTOM': label = 'Custom'; break;
-                                }
-                                const isActive = dateRange === r;
-                                return (
-                                    <button 
-                                        key={r}
-                                        onClick={() => setDateRange(r)}
-                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
-                                            isActive 
-                                            ? 'bg-white text-blue-900 shadow-sm' 
-                                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-300/50'
-                                        }`}
-                                    >
-                                        {label}
-                                    </button>
-                                )
-                            })}
-                        </div>
-
-                        {dateRange === 'CUSTOM' && (
-                        <div className="flex gap-2 items-center">
-                            <input 
-                            type="date" 
-                            className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
-                            value={customStart}
-                            onChange={(e) => setCustomStart(e.target.value)}
-                            />
-                            <span className="text-gray-500">-</span>
-                            <input 
-                            type="date" 
-                            className="border border-gray-300 rounded px-2 py-2 text-sm bg-gray-300 text-black placeholder-black"
-                            value={customEnd}
-                            onChange={(e) => setCustomEnd(e.target.value)}
-                            />
-                        </div>
-                        )}
-                    </>
-                )}
-             </div>
-          </div>
-  )};
 
   if (view === 'ITEMS' && activeCompany) {
       return renderItems();
@@ -2166,6 +1911,10 @@ const App: React.FC = () => {
   
   if (view === 'FINANCE' && activeCompany) {
       return renderFinanceView();
+  }
+
+  if (view === 'BRANCH_MANAGEMENT' && activeCompany) {
+      return renderBranchManagement();
   }
 
   if (view === 'DASHBOARD' && activeCompany) {
@@ -2417,6 +2166,307 @@ const App: React.FC = () => {
         onBack={() => setView('DASHBOARD')} 
       />
     );
+  }
+
+  if (view === 'LOGIN') {
+    return (
+      <div className="min-h-screen bg-gray-200 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-sm">
+          <div className="text-center mb-8">
+              <h1 className="text-3xl font-black text-blue-900 tracking-tighter uppercase mb-1">Qovoz</h1>
+              <p className="text-gray-500 text-xs tracking-widest uppercase">Logistics Management System</p>
+          </div>
+          
+          {loginError && (
+              <div className="bg-red-50 border-l-4 border-red-500 p-3 mb-6">
+                  <p className="text-red-700 text-xs font-bold">{loginError}</p>
+              </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-gray-700 text-xs font-bold mb-1 uppercase tracking-wide">Username</label>
+              <input 
+                type="text" 
+                className="w-full border border-gray-300 bg-gray-50 p-3 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter your username"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-700 text-xs font-bold mb-1 uppercase tracking-wide">Password</label>
+              <input 
+                type="password" 
+                className="w-full border border-gray-300 bg-gray-50 p-3 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+              />
+            </div>
+            <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3 rounded hover:bg-blue-800 transition shadow-lg mt-2">
+              Login to Dashboard
+            </button>
+          </form>
+          <div className="mt-6 text-center">
+              <p className="text-xs text-gray-400">© 2024 Qovoz Systems. All rights reserved.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'SETTINGS' && isSuperAdmin) {
+      return (
+        <div className="min-h-screen bg-gray-100 flex flex-col">
+            <nav className="bg-gray-800 text-white p-4 shadow-md sticky top-0 z-10">
+                <div className="max-w-7xl mx-auto flex justify-between items-center">
+                    <h1 className="text-xl font-bold">Super Admin Dashboard</h1>
+                    <button onClick={handleLogout} className="bg-red-600 px-4 py-1.5 rounded text-sm hover:bg-red-500">Logout</button>
+                </div>
+            </nav>
+
+            <div className="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left: List of Companies */}
+                <div className="lg:col-span-1 space-y-4">
+                    <h2 className="text-lg font-bold text-gray-700 mb-2">Existing Companies</h2>
+                    
+                    {/* Search & Filters */}
+                    <div className="bg-white p-4 rounded shadow mb-4">
+                        <div className="relative mb-3">
+                            <input 
+                                type="text" 
+                                className="w-full border border-gray-300 rounded pl-8 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                                placeholder="Search by name or user..."
+                                value={adminSearchQuery}
+                                onChange={(e) => setAdminSearchQuery(e.target.value)}
+                            />
+                            <svg className="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setAdminFilter('ALL')}
+                                className={`flex-1 py-1 text-xs font-bold rounded border ${adminFilter === 'ALL' ? 'bg-blue-100 text-blue-800 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
+                            >
+                                All
+                            </button>
+                            <button 
+                                onClick={() => setAdminFilter('EXPIRING')}
+                                className={`flex-1 py-1 text-xs font-bold rounded border ${adminFilter === 'EXPIRING' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
+                            >
+                                Expiring
+                            </button>
+                            <button 
+                                onClick={() => setAdminFilter('EXPIRED')}
+                                className={`flex-1 py-1 text-xs font-bold rounded border ${adminFilter === 'EXPIRED' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
+                            >
+                                Expired
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto">
+                        {filteredAdminCompanies.length === 0 && (
+                            <div className="text-center text-gray-400 py-8 text-sm bg-white rounded border border-dashed">No companies match filter.</div>
+                        )}
+                        
+                        {filteredAdminCompanies.map(company => {
+                            const expDate = new Date(company.expiryDate);
+                            const now = new Date();
+                            now.setHours(0,0,0,0);
+                            const diffTime = expDate.getTime() - now.getTime();
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            const isExpired = diffDays < 0;
+                            const isExpiringSoon = diffDays >= 0 && diffDays <= 30;
+
+                            let statusColor = "border-l-4 border-green-500";
+                            if (isExpired) statusColor = "border-l-4 border-red-500 bg-red-50";
+                            else if (isExpiringSoon) statusColor = "border-l-4 border-yellow-500 bg-yellow-50";
+
+                            return (
+                                <div key={company.id} className={`bg-white p-4 rounded shadow hover:shadow-md transition ${statusColor}`}>
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div>
+                                            <h3 className="font-bold text-gray-800 text-base">{company.settings.companyName}</h3>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                {company.parentId && (
+                                                    <span className="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Branch</span>
+                                                )}
+                                                {isExpired && <span className="bg-red-200 text-red-800 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Expired</span>}
+                                                {isExpiringSoon && <span className="bg-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Expiring Soon</span>}
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleEditCompany(company)}
+                                            className="text-xs bg-white border border-gray-300 hover:bg-gray-100 text-gray-600 px-3 py-1 rounded shadow-sm"
+                                        >
+                                            Edit
+                                        </button>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs text-gray-500 border-t border-gray-200 pt-2 mt-2">
+                                        <p>User: <span className="font-mono font-semibold">{company.username}</span></p>
+                                        <p className={`${isExpired ? 'text-red-600 font-bold' : (isExpiringSoon ? 'text-yellow-700 font-bold' : '')}`}>
+                                            Exp: {company.expiryDate} {isExpired ? `(${Math.abs(diffDays)} days ago)` : (isExpiringSoon ? `(${diffDays} days left)` : '')}
+                                        </p>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Right: Add/Edit Form */}
+                <div className="lg:col-span-2">
+                    <div className="bg-white p-6 rounded shadow sticky top-24">
+                        <div className="flex justify-between items-center mb-6 border-b pb-2">
+                            <h2 className="text-xl font-bold text-gray-800">
+                                {editingCompanyId ? 'Edit Company' : 'Create New Company'}
+                            </h2>
+                            {editingCompanyId && (
+                                <button onClick={handleCancelEdit} className="text-sm text-red-600 hover:underline">Cancel Editing</button>
+                            )}
+                        </div>
+
+                        <div className="space-y-6">
+                            {/* Section 1: Authentication */}
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Login Details</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Username</label>
+                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.username || ''} onChange={e => setNewCompany({...newCompany, username: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Password</label>
+                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.password || ''} onChange={e => setNewCompany({...newCompany, password: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Expiry Date</label>
+                                        <input className="w-full border p-2 rounded" type="date" value={newCompany.expiryDate} onChange={e => setNewCompany({...newCompany, expiryDate: e.target.value})} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 2: Branch Settings */}
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                                    <input type="checkbox" checked={isBranch} onChange={e => setIsBranch(e.target.checked)} className="w-4 h-4" />
+                                    <span className="text-sm font-bold text-gray-700">Is this a Branch Office?</span>
+                                </label>
+                                {isBranch && (
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Parent Company</label>
+                                        <select 
+                                            className="w-full border p-2 rounded bg-white"
+                                            value={selectedParentId}
+                                            onChange={e => setSelectedParentId(e.target.value)}
+                                        >
+                                            <option value="">Select Parent HQ...</option>
+                                            {companies.filter(c => !c.parentId && c.id !== editingCompanyId).map(c => (
+                                                <option key={c.id} value={c.id}>{c.settings.companyName}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Section 3: Company Details */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (English)</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.companyName || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, companyName: e.target.value}})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (Arabic)</label>
+                                    <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.companyArabicName || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, companyArabicName: e.target.value}})} />
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Location Name (e.g. Riyadh Branch)</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.location || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, location: e.target.value}})} placeholder="City or Branch Name" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Logo URL</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.logoUrl || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, logoUrl: e.target.value}})} placeholder="https://..." />
+                                </div>
+
+                                <div className="col-span-2">
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Address Line 1</label>
+                                    <input className="w-full border p-2 rounded mb-2" type="text" value={newCompany.settings?.addressLine1 || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1: e.target.value}})} placeholder="English Address" />
+                                    <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.addressLine1Arabic || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1Arabic: e.target.value}})} placeholder="العنوان بالعربي" />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Phone 1</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone1 || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, phone1: e.target.value}})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Phone 2</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone2 || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, phone2: e.target.value}})} />
+                                </div>
+                            </div>
+
+                            {/* Section 4: Invoice Configuration */}
+                            <div className="bg-blue-50 p-4 rounded border border-blue-100">
+                                <h3 className="text-sm font-bold text-blue-800 uppercase mb-3">Invoice Configuration</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Prefix (e.g. RUH-)</label>
+                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.invoicePrefix || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, invoicePrefix: e.target.value}})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Start Number</label>
+                                        <input className="w-full border p-2 rounded" type="number" value={newCompany.settings?.invoiceStartNumber || 1000} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, invoiceStartNumber: parseInt(e.target.value)}})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Brand Color</label>
+                                        <input className="w-full h-10 border rounded cursor-pointer" type="color" value={newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, brandColor: e.target.value}})} />
+                                    </div>
+                                </div>
+                                <div className="mt-4 flex items-center gap-4">
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">VAT / Tax Number</label>
+                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.vatnoc || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, vatnoc: e.target.value}})} />
+                                    </div>
+                                    <div className="flex items-center pt-5">
+                                        <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 border rounded shadow-sm">
+                                            <input type="checkbox" checked={newCompany.settings?.isVatEnabled || false} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, isVatEnabled: e.target.checked}})} className="w-4 h-4 text-blue-600" />
+                                            <span className="text-sm font-bold text-gray-700">Enable VAT (15%)</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 5: Shipment Types */}
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Shipment Types</h3>
+                                <div className="flex gap-2 mb-3">
+                                    <input className="flex-1 border p-2 rounded text-sm" placeholder="Type Name (e.g. AIR CARGO)" value={tempShipmentName} onChange={e => setTempShipmentName(e.target.value)} />
+                                    <input className="w-24 border p-2 rounded text-sm" type="number" placeholder="Rate" value={tempShipmentValue} onChange={e => setTempShipmentValue(e.target.value)} />
+                                    <button onClick={addShipmentType} className="bg-green-600 text-white px-4 rounded font-bold hover:bg-green-700">+</button>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {(newCompany.settings?.shipmentTypes || []).map((type, idx) => (
+                                        <span key={idx} className="bg-white border border-gray-300 px-3 py-1 rounded-full text-sm flex items-center gap-2 shadow-sm">
+                                            <span className="font-bold text-gray-700">{type.name}</span>
+                                            <span className="text-blue-600 font-mono">{type.value}</span>
+                                            <button onClick={() => removeShipmentType(idx)} className="text-red-500 hover:text-red-700 font-bold ml-1">&times;</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <button onClick={handleSaveCompany} className="w-full bg-blue-800 text-white font-bold py-3 rounded hover:bg-blue-700 transition shadow-lg">
+                                {editingCompanyId ? 'Update Company Details' : 'Create Company'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+      );
   }
 
   return null;
