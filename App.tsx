@@ -1,9 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction } from './types';
+import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus } from './types';
 import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
-import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR, DEFAULT_ACCOUNTS } from './services/dataService';
+import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR } from './services/dataService';
 
 const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'Received',
@@ -119,16 +119,6 @@ const App: React.FC = () => {
   // Bulk Status Update State
   const [selectedInvoiceNos, setSelectedInvoiceNos] = useState<string[]>([]);
   const [bulkStatus, setBulkStatus] = useState<ShipmentStatus>('Received');
-
-  // Finance State
-  const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
-  const [newTransaction, setNewTransaction] = useState<Partial<FinancialTransaction>>({
-      type: 'EXPENSE',
-      amount: 0,
-      description: '',
-      accountId: '',
-      date: new Date().toISOString().split('T')[0]
-  });
 
   // Create/Edit Company Form State
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
@@ -374,9 +364,7 @@ const App: React.FC = () => {
           tcEnglish: newCompany.settings.tcEnglish || DEFAULT_TC_ENGLISH,
           tcArabic: newCompany.settings.tcArabic || DEFAULT_TC_ARABIC
         },
-        invoices: [],
-        financialAccounts: DEFAULT_ACCOUNTS,
-        financialTransactions: []
+        invoices: []
       };
       setCompanies([...companies, companyToAdd]);
       alert("Company Created Successfully!");
@@ -497,34 +485,7 @@ const App: React.FC = () => {
             foundAndUpdated = true;
             const updatedInvoices = [...c.invoices];
             updatedInvoices[existingIndex] = data;
-
-            // --- AUTO FINANCE LINKING ---
-            // Check if there is already a transaction for this invoice
-            let updatedTransactions = [...(c.financialTransactions || [])];
-            const txIndex = updatedTransactions.findIndex(t => t.referenceId === data.invoiceNo && t.type === 'INCOME');
-            
-            if (txIndex >= 0) {
-                // Update existing transaction
-                updatedTransactions[txIndex] = {
-                    ...updatedTransactions[txIndex],
-                    amount: data.financials.netTotal,
-                    date: new Date().toISOString().split('T')[0] // Update date to today or keep original? For now update to today to reflect edit
-                };
-            } else {
-                // Create new transaction if somehow missing (e.g. data migration issue)
-                updatedTransactions.push({
-                    id: `tx_${data.invoiceNo}_${Date.now()}`,
-                    date: new Date().toISOString().split('T')[0],
-                    timestamp: new Date().toISOString(),
-                    accountId: 'acc_sales', // Default Sales Account
-                    type: 'INCOME',
-                    amount: data.financials.netTotal,
-                    description: `Invoice Generation: ${data.invoiceNo}`,
-                    referenceId: data.invoiceNo
-                });
-            }
-
-            return { ...c, invoices: updatedInvoices, financialTransactions: updatedTransactions };
+            return { ...c, invoices: updatedInvoices };
         }
         return c;
       });
@@ -537,23 +498,7 @@ const App: React.FC = () => {
       if (activeCompanyId) {
           return prev.map(c => {
               if (c.id === activeCompanyId) {
-                  // Create accompanying transaction
-                  const newTx: FinancialTransaction = {
-                      id: `tx_${data.invoiceNo}_${Date.now()}`,
-                      date: new Date().toISOString().split('T')[0],
-                      timestamp: new Date().toISOString(),
-                      accountId: 'acc_sales',
-                      type: 'INCOME',
-                      amount: data.financials.netTotal,
-                      description: `Invoice Generation: ${data.invoiceNo}`,
-                      referenceId: data.invoiceNo
-                  };
-
-                  return { 
-                      ...c, 
-                      invoices: [data, ...c.invoices],
-                      financialTransactions: [newTx, ...(c.financialTransactions || [])]
-                  };
+                  return { ...c, invoices: [data, ...c.invoices] };
               }
               return c;
           });
@@ -664,35 +609,6 @@ const App: React.FC = () => {
 
       setEditingCustomer(null);
       alert("Customer details updated successfully.");
-  };
-
-  // --- Finance Handlers ---
-  const handleSaveTransaction = () => {
-      if (!newTransaction.amount || !newTransaction.accountId || !newTransaction.description) {
-          alert("Please fill all fields");
-          return;
-      }
-
-      if (!activeCompanyId) return;
-
-      setCompanies(prev => prev.map(c => {
-          if (c.id === activeCompanyId) {
-              const tx: FinancialTransaction = {
-                  id: `tx_manual_${Date.now()}`,
-                  date: newTransaction.date || new Date().toISOString().split('T')[0],
-                  timestamp: new Date().toISOString(),
-                  accountId: newTransaction.accountId!,
-                  amount: parseFloat(newTransaction.amount!.toString()),
-                  type: newTransaction.type as 'INCOME' | 'EXPENSE',
-                  description: newTransaction.description!
-              };
-              return { ...c, financialTransactions: [tx, ...(c.financialTransactions || [])] };
-          }
-          return c;
-      }));
-
-      setIsAddTransactionOpen(false);
-      setNewTransaction({ type: 'EXPENSE', amount: 0, description: '', accountId: '', date: new Date().toISOString().split('T')[0] });
   };
 
 
@@ -861,215 +777,6 @@ const App: React.FC = () => {
           </div>
       )
   );
-
-  const renderFinanceView = () => {
-    if (!activeCompany) return null;
-
-    // Filter transactions for display
-    const transactions = activeCompany.financialTransactions || [];
-    
-    // Sort transactions date desc
-    transactions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-    // Calculate Balances
-    const accountBalances = (activeCompany.financialAccounts || []).map(acc => {
-        const total = transactions
-            .filter(t => t.accountId === acc.id)
-            .reduce((sum, t) => sum + t.amount, 0);
-        return { ...acc, balance: total };
-    });
-
-    const totalRevenue = transactions.filter(t => t.type === 'INCOME').reduce((sum, t) => sum + t.amount, 0);
-    const totalExpense = transactions.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + t.amount, 0);
-    const netProfit = totalRevenue - totalExpense;
-
-    return (
-        <div className="min-h-screen bg-gray-50">
-            {renderHeader()}
-            {renderSidebar()}
-            
-            {/* Add Transaction Modal */}
-            {isAddTransactionOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] animate-fade-in p-4">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-                        <div className="p-4 border-b">
-                            <h3 className="text-xl font-bold text-gray-800">Add Transaction</h3>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Transaction Type</label>
-                                <select 
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.type}
-                                    onChange={e => setNewTransaction({...newTransaction, type: e.target.value as any})}
-                                >
-                                    <option value="EXPENSE">Expense (Money Out)</option>
-                                    <option value="INCOME">Income (Money In)</option>
-                                </select>
-                            </div>
-                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Category / Account</label>
-                                <select 
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.accountId}
-                                    onChange={e => setNewTransaction({...newTransaction, accountId: e.target.value})}
-                                >
-                                    <option value="">Select Account</option>
-                                    {(activeCompany.financialAccounts || [])
-                                        .filter(acc => acc.type === (newTransaction.type === 'INCOME' ? 'REVENUE' : 'EXPENSE'))
-                                        .map(acc => (
-                                            <option key={acc.id} value={acc.id}>{acc.name}</option>
-                                        ))
-                                    }
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
-                                <input 
-                                    type="number"
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.amount || ''}
-                                    onChange={e => setNewTransaction({...newTransaction, amount: parseFloat(e.target.value)})}
-                                    placeholder="0.00"
-                                />
-                            </div>
-                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                                <input 
-                                    type="date"
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.date}
-                                    onChange={e => setNewTransaction({...newTransaction, date: e.target.value})}
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                                <input 
-                                    type="text"
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.description}
-                                    onChange={e => setNewTransaction({...newTransaction, description: e.target.value})}
-                                    placeholder="e.g. Fuel for Truck A"
-                                />
-                            </div>
-                        </div>
-                        <div className="p-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
-                            <button 
-                                onClick={() => setIsAddTransactionOpen(false)}
-                                className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded"
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                onClick={handleSaveTransaction}
-                                className="px-6 py-2 bg-blue-900 text-white rounded font-bold hover:bg-blue-800"
-                            >
-                                Save Transaction
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <main className="max-w-7xl mx-auto p-4 md:p-6">
-                <div className="flex justify-between items-center mb-6">
-                     <div className="flex items-center gap-4">
-                        <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                            &larr; Back to Dashboard
-                        </button>
-                        <h2 className="text-2xl font-bold text-gray-800">Financial Accounts</h2>
-                     </div>
-                     <button 
-                        onClick={() => setIsAddTransactionOpen(true)}
-                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 shadow font-bold flex items-center gap-2"
-                     >
-                         <span>+</span> New Transaction
-                     </button>
-                </div>
-
-                {/* Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                     <div className="bg-white p-6 rounded shadow-sm border-l-4 border-blue-500">
-                        <div className="text-gray-500 text-sm">Total Revenue (All Time)</div>
-                        <div className="text-3xl font-bold text-gray-800">SAR {totalRevenue.toFixed(2)}</div>
-                    </div>
-                     <div className="bg-white p-6 rounded shadow-sm border-l-4 border-red-500">
-                        <div className="text-gray-500 text-sm">Total Expenses (All Time)</div>
-                        <div className="text-3xl font-bold text-gray-800">SAR {totalExpense.toFixed(2)}</div>
-                    </div>
-                    <div className="bg-white p-6 rounded shadow-sm border-l-4 border-green-500">
-                        <div className="text-gray-500 text-sm">Net Profit</div>
-                        <div className={`text-3xl font-bold ${netProfit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                            SAR {netProfit.toFixed(2)}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Accounts Grid */}
-                <h3 className="font-bold text-gray-700 mb-4">Account Balances</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                    {accountBalances.map(acc => (
-                        <div key={acc.id} className="bg-white p-4 rounded shadow border border-gray-100 flex justify-between items-center">
-                            <div>
-                                <h4 className="font-bold text-gray-800">{acc.name}</h4>
-                                <span className={`text-xs px-2 py-0.5 rounded ${acc.type === 'REVENUE' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{acc.type}</span>
-                            </div>
-                            <div className="text-right">
-                                <span className="block text-xl font-bold text-gray-900">{acc.balance.toFixed(2)}</span>
-                                <span className="text-xs text-gray-400">Total</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-
-                {/* Recent Transactions */}
-                <div className="bg-white rounded shadow overflow-hidden">
-                    <div className="px-6 py-4 border-b">
-                        <h3 className="font-bold text-gray-700">Transaction History</h3>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-50 text-gray-600">
-                                <tr>
-                                    <th className="p-4 border-b">Date</th>
-                                    <th className="p-4 border-b">Description</th>
-                                    <th className="p-4 border-b">Account</th>
-                                    <th className="p-4 border-b">Ref ID</th>
-                                    <th className="p-4 border-b text-right">Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {transactions.length > 0 ? (
-                                    transactions.map(t => {
-                                        const accName = activeCompany.financialAccounts?.find(a => a.id === t.accountId)?.name || 'Unknown';
-                                        return (
-                                            <tr key={t.id} className="hover:bg-gray-50 border-b last:border-0">
-                                                <td className="p-4 text-gray-600">{t.date}</td>
-                                                <td className="p-4 font-medium text-gray-800">{t.description}</td>
-                                                <td className="p-4">
-                                                    <span className="bg-gray-100 px-2 py-1 rounded text-xs text-gray-600">{accName}</span>
-                                                </td>
-                                                <td className="p-4 font-mono text-xs text-blue-600">{t.referenceId || '-'}</td>
-                                                <td className={`p-4 text-right font-bold ${t.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
-                                                    {t.type === 'INCOME' ? '+' : '-'} {t.amount.toFixed(2)}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                ) : (
-                                    <tr>
-                                        <td colSpan={5} className="p-8 text-center text-gray-500">No transactions found.</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-            </main>
-        </div>
-    );
-  };
 
   if (view === 'LOGIN') {
     return (
@@ -1561,14 +1268,6 @@ const App: React.FC = () => {
                             <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
                          </svg>
                          Modify Status
-                    </button>
-
-                    <button onClick={() => handleNavClick('FINANCE')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'FINANCE' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.312-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.312.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
-                        </svg>
-                        Financial Accounts
                     </button>
 
                     <button onClick={() => handleNavClick('BRANCH_MANAGEMENT')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'BRANCH_MANAGEMENT' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
@@ -2164,10 +1863,6 @@ const App: React.FC = () => {
 
   if (view === 'CUSTOMER_DETAIL' && activeCompany) {
       return renderCustomerDetail();
-  }
-  
-  if (view === 'FINANCE' && activeCompany) {
-      return renderFinanceView();
   }
 
   if (view === 'DASHBOARD' && activeCompany) {

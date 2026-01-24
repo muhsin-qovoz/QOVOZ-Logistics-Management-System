@@ -1,7 +1,7 @@
 
-import { Company, InvoiceData, AppSettings, StatusHistoryItem, FinancialAccount, FinancialTransaction } from '../types';
+import { Company, InvoiceData, AppSettings, StatusHistoryItem } from '../types';
 
-const STORAGE_KEY = 'qovoz_companies_v11'; // Incremented version for Finance Schema
+const STORAGE_KEY = 'qovoz_companies_v10'; // Updated to v10 for invoice settings
 
 // Helper for date formatting
 export const formatDate = (date: Date) => {
@@ -19,15 +19,6 @@ export const DEFAULT_TC_HEADER = "ACCEPT THE GOODS ONLY AFTER CHECKING AND CONFI
 export const DEFAULT_TC_ENGLISH = "NO GUARANTEE FOR GLASS/BREAKABLE ITEMS. COMPANY NOT RESPONSIBLE FOR ITEMS RECEIVED IN DAMAGED CONDITION. COMPLAINTS WILL NOT BE ACCEPTED AFTER 2 DAYS FROM THE DATE OF DELIVERY. COMPANY NOT RESPONSIBLE FOR OCTROI CHARGES OR ANY OTHER CHARGES LEVIED LOCALLY. IN CASE OF CLAIM (LOSS), PROOF OF DOCUMENTS SHOULD BE PRODUCED. SETTLEMENT WILL BE MADE (20 SAR/KGS) PER COMPANY RULES. COMPANY WILL NOT TAKE RESPONSIBILITY FOR NATURAL CALAMITY AND DELAY IN CUSTOMS CLEARANCE.";
 export const DEFAULT_TC_ARABIC = "الشروط: 1. لا توجد مطالب عند الشركة الناشئة للخسائر الناتجة عن الحوادث الطبيعية أو تأخير التخليص الجمركي. 2. لا تتحمل الشركة مسؤولية أي خسارة ناتجة عن سوء الاستخدام أو الأضرار غير المسؤولة أو المسؤوليات المترتبة على أي رسوم ومعاملات تفرض من قبل السلطات الجمركية. 3. الشركة غير مسؤولة عن أي مسؤوليات قانونية ناشئة عن المستندات المفقودة أو التالفة. 4. يتحمل المستلم أو المشتري جميع الرسوم الإضافية، بما في ذلك رسوم التخزين والغرامات المفروضة من قبل الجمارك.";
 export const DEFAULT_BRAND_COLOR = "#7f1d1d"; // Tailwind red-900
-
-// Default Financial Accounts
-export const DEFAULT_ACCOUNTS: FinancialAccount[] = [
-    { id: 'acc_sales', name: 'Sales Revenue', type: 'REVENUE', isSystem: true },
-    { id: 'acc_ops', name: 'Operational Expenses', type: 'EXPENSE', isSystem: true },
-    { id: 'acc_fuel', name: 'Fuel & Transport', type: 'EXPENSE', isSystem: false },
-    { id: 'acc_rent', name: 'Office Rent', type: 'EXPENSE', isSystem: false },
-    { id: 'acc_salary', name: 'Salaries', type: 'EXPENSE', isSystem: false }
-];
 
 const generateMockInvoices = (
     startId: number, 
@@ -100,23 +91,10 @@ const generateMockInvoices = (
   ];
 };
 
-// Generates transactions based on the mock invoices
-const generateMockTransactions = (invoices: InvoiceData[]): FinancialTransaction[] => {
-    return invoices.map(inv => ({
-        id: `tx_${inv.invoiceNo}`,
-        date: new Date().toISOString().split('T')[0],
-        timestamp: new Date().toISOString(),
-        accountId: 'acc_sales',
-        type: 'INCOME',
-        amount: inv.financials.netTotal,
-        description: `Invoice Generation: ${inv.invoiceNo}`,
-        referenceId: inv.invoiceNo
-    }));
-};
-
 export const INITIAL_COMPANIES: Company[] = [
   // ---------------------------------------------------------
   // 1. Parent Company (Test Cargo HQ)
+  // Credentials: username: 'test', password: 'test'
   // ---------------------------------------------------------
   {
     id: '1',
@@ -144,13 +122,12 @@ export const INITIAL_COMPANIES: Company[] = [
       tcEnglish: DEFAULT_TC_ENGLISH,
       tcArabic: DEFAULT_TC_ARABIC
     },
-    invoices: generateMockInvoices(1000, 'HQ-', '300000000000001', 'AL RAJHI TRADING', 'RIYADH', 'TEXTILES'),
-    financialAccounts: DEFAULT_ACCOUNTS,
-    financialTransactions: [] // Will be populated in app load if empty logic, but good for now
+    invoices: generateMockInvoices(1000, 'HQ-', '300000000000001', 'AL RAJHI TRADING', 'RIYADH', 'TEXTILES')
   },
   
   // ---------------------------------------------------------
   // 2. Sub-Branch 1 (Dammam)
+  // Credentials: username: 'test1', password: 'test1'
   // ---------------------------------------------------------
   {
     id: '2',
@@ -178,13 +155,12 @@ export const INITIAL_COMPANIES: Company[] = [
       tcEnglish: DEFAULT_TC_ENGLISH,
       tcArabic: DEFAULT_TC_ARABIC
     },
-    invoices: generateMockInvoices(2000, 'DAM-', '300000000000002', 'EASTERN SUPPLIES LLC', 'DAMMAM', 'INDUSTRIAL PARTS'),
-    financialAccounts: DEFAULT_ACCOUNTS,
-    financialTransactions: []
+    invoices: generateMockInvoices(2000, 'DAM-', '300000000000002', 'EASTERN SUPPLIES LLC', 'DAMMAM', 'INDUSTRIAL PARTS')
   },
 
   // ---------------------------------------------------------
   // 3. Sub-Branch 2 (Jeddah)
+  // Credentials: username: 'test2', password: 'test2'
   // ---------------------------------------------------------
   {
     id: '3',
@@ -212,28 +188,15 @@ export const INITIAL_COMPANIES: Company[] = [
       tcEnglish: DEFAULT_TC_ENGLISH,
       tcArabic: DEFAULT_TC_ARABIC
     },
-    invoices: generateMockInvoices(3000, 'JED-', '300000000000003', 'RED SEA MARKETS', 'JEDDAH', 'GIFT ITEMS'),
-    financialAccounts: DEFAULT_ACCOUNTS,
-    financialTransactions: []
+    invoices: generateMockInvoices(3000, 'JED-', '300000000000003', 'RED SEA MARKETS', 'JEDDAH', 'GIFT ITEMS')
   }
 ];
-
-// Seed Transactions for initial data
-INITIAL_COMPANIES.forEach(c => {
-    c.financialTransactions = generateMockTransactions(c.invoices);
-});
 
 export const getStoredCompanies = (): Company[] => {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
     try {
-      const parsed = JSON.parse(saved);
-      // Migration: Ensure accounts exist if loading from old data
-      parsed.forEach((c: Company) => {
-          if (!c.financialAccounts) c.financialAccounts = DEFAULT_ACCOUNTS;
-          if (!c.financialTransactions) c.financialTransactions = [];
-      });
-      return parsed;
+      return JSON.parse(saved);
     } catch (e) {
       console.error("Failed to load companies from local storage", e);
       return INITIAL_COMPANIES;
