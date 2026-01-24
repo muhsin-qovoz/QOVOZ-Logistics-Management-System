@@ -89,7 +89,7 @@ export interface SavedCustomer {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'MODIFY_STATUS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL' | 'FINANCE' | 'ITEMS';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL' | 'FINANCE' | 'ITEMS';
 
 export interface ShipmentType {
   name: string;

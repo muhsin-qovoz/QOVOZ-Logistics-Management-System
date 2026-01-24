@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction, ItemMaster } from './types';
 import InvoiceForm from './components/InvoiceForm';
@@ -107,9 +108,6 @@ const App: React.FC = () => {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [currentInvoice, setCurrentInvoice] = useState<InvoiceData | null>(null);
-
-  // Modify Status Specific State
-  const [showSelectedOnly, setShowSelectedOnly] = useState(false);
   
   // Status History Modal State
   const [viewingHistoryInvoice, setViewingHistoryInvoice] = useState<InvoiceData | null>(null);
@@ -118,10 +116,6 @@ const App: React.FC = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<AggregatedCustomer | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<AggregatedCustomer | null>(null);
   const [editCustomerForm, setEditCustomerForm] = useState({ name: '', mobile: '', idNo: '' });
-
-  // Bulk Status Update State
-  const [selectedInvoiceNos, setSelectedInvoiceNos] = useState<string[]>([]);
-  const [bulkStatus, setBulkStatus] = useState<ShipmentStatus>('Received');
 
   // Finance State
   const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
@@ -323,11 +317,6 @@ const App: React.FC = () => {
       // Reset selections
       setSelectedCustomer(null);
 
-      // Reset selections if moving away from bulk edit
-      if (newView !== 'MODIFY_STATUS') {
-          setSelectedInvoiceNos([]);
-          setShowSelectedOnly(false); // Reset selected only view
-      }
       if (newView === 'CREATE_INVOICE') {
           handleCreateInvoice();
       }
@@ -681,57 +670,6 @@ const App: React.FC = () => {
     setView('PREVIEW_INVOICE');
   };
   
-  // Bulk Update Handlers
-  const toggleAllInvoices = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.checked) {
-          setSelectedInvoiceNos(filteredInvoices.map(inv => inv.invoiceNo));
-      } else {
-          setSelectedInvoiceNos([]);
-      }
-  };
-
-  const toggleInvoiceSelection = (invoiceNo: string) => {
-      if (selectedInvoiceNos.includes(invoiceNo)) {
-          setSelectedInvoiceNos(prev => prev.filter(id => id !== invoiceNo));
-      } else {
-          setSelectedInvoiceNos(prev => [...prev, invoiceNo]);
-      }
-  };
-
-  const handleBulkStatusUpdate = () => {
-      if (selectedInvoiceNos.length === 0) return;
-
-      if (!window.confirm(`Are you sure you want to update the status of ${selectedInvoiceNos.length} invoices to "${bulkStatus}"?`)) {
-          return;
-      }
-
-      setCompanies(prev => prev.map(c => {
-          // Check if this company has any of the selected invoices
-          const hasInvoices = c.invoices.some(inv => selectedInvoiceNos.includes(inv.invoiceNo));
-          
-          if (hasInvoices) {
-              const updatedInvoices = c.invoices.map(inv => {
-                  if (selectedInvoiceNos.includes(inv.invoiceNo)) {
-                      // Update Status AND Append History
-                      const timestamp = new Date().toISOString();
-                      const history = inv.statusHistory || [];
-                      return { 
-                          ...inv, 
-                          status: bulkStatus,
-                          statusHistory: [...history, { status: bulkStatus, timestamp }]
-                      };
-                  }
-                  return inv;
-              });
-              return { ...c, invoices: updatedInvoices };
-          }
-          return c;
-      }));
-
-      alert("Status updated successfully!");
-      setSelectedInvoiceNos([]); // Clear selection
-  };
-  
   // Customer Edit Logic
   const handleEditCustomerClick = (e: React.MouseEvent, customer: AggregatedCustomer) => {
       e.stopPropagation(); // Prevent row click
@@ -917,13 +855,8 @@ const App: React.FC = () => {
       return true;
     });
 
-    // 4. Modify Status - Selected Only Filter
-    if (view === 'MODIFY_STATUS' && showSelectedOnly) {
-        filtered = filtered.filter(inv => selectedInvoiceNos.includes(inv.invoiceNo));
-    }
-
     return filtered;
-  }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, dateRange, customStart, customEnd, view, showSelectedOnly, selectedInvoiceNos]);
+  }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, dateRange, customStart, customEnd, view]);
 
   const stats = useMemo(() => {
     const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
@@ -2076,14 +2009,6 @@ const App: React.FC = () => {
                         Items
                     </button>
 
-                     <button onClick={() => handleNavClick('MODIFY_STATUS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'MODIFY_STATUS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M17.414 2.586a2 2 0 00-2.828 0L7 9.414v2.586h2.586l7.586-7.586a2 2 0 000-2.828z" />
-                            <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                         </svg>
-                         Modify Status
-                    </button>
-
                     <button onClick={() => handleNavClick('FINANCE')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'FINANCE' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                             <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
@@ -2174,18 +2099,6 @@ const App: React.FC = () => {
                     ))}
                 </select>
 
-                {/* Modify Status - Selected/All Filter */}
-                {view === 'MODIFY_STATUS' && (
-                     <select
-                        className="border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto"
-                        value={showSelectedOnly ? 'SELECTED' : 'ALL'}
-                        onChange={(e) => setShowSelectedOnly(e.target.value === 'SELECTED')}
-                    >
-                        <option value="ALL">All</option>
-                        <option value="SELECTED">Selected ({selectedInvoiceNos.length})</option>
-                    </select>
-                )}
-
                 {/* Hide Date Range Picker in Customers View */}
                 {view !== 'CUSTOMERS' && view !== 'ITEMS' && (
                     <>
@@ -2243,8 +2156,6 @@ const App: React.FC = () => {
       return renderItems();
   }
 
-  // ... (Rest of existing views: CUSTOMERS, CUSTOMER_DETAIL, FINANCE, DASHBOARD, INVOICES)
-
   if (view === 'CUSTOMERS' && activeCompany) {
       return renderCustomers();
   }
@@ -2269,19 +2180,6 @@ const App: React.FC = () => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
             <div className="flex gap-2 w-full md:w-auto">
-                 <button 
-                  onClick={() => {
-                      setSelectedInvoiceNos([]);
-                      setView('MODIFY_STATUS');
-                  }}
-                  className="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 flex items-center gap-2 justify-center flex-1 md:flex-none"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M17.414 2.586a2 2 0 00-2.828 0L7 9.414v2.586h2.586l7.586-7.586a2 2 0 000-2.828z" />
-                    <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                  </svg>
-                  Modify Status
-                </button>
                 <button 
                   onClick={handleCreateInvoice}
                   className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 justify-center flex-1 md:flex-none"
@@ -2378,19 +2276,6 @@ const App: React.FC = () => {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
               <h2 className="text-2xl font-bold text-gray-800">Invoices</h2>
               <div className="flex gap-2 w-full md:w-auto">
-                   <button 
-                    onClick={() => {
-                        setSelectedInvoiceNos([]);
-                        setView('MODIFY_STATUS');
-                    }}
-                    className="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 flex items-center gap-2 justify-center flex-1 md:flex-none"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M17.414 2.586a2 2 0 00-2.828 0L7 9.414v2.586h2.586l7.586-7.586a2 2 0 000-2.828z" />
-                      <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                    </svg>
-                    Modify Status
-                  </button>
                   <button 
                     onClick={handleCreateInvoice}
                     className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 justify-center flex-1 md:flex-none"
