@@ -1,20 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction, ItemMaster } from './types';
+import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction, ItemMaster, ShipmentStatusSetting } from './types';
 import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
-import { fetchCompanies, persistAllCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR, DEFAULT_ACCOUNTS, DEFAULT_ITEMS } from './services/dataService';
-
-const SHIPMENT_STATUSES: ShipmentStatus[] = [
-  'Received',
-  'Departed from Branch',
-  'Received at HO',
-  'Loaded into Container',
-  'In transit',
-  'Arrived at destination',
-  'Out for delivery',
-  'Delivered'
-];
+import { fetchCompanies, persistAllCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR, DEFAULT_ACCOUNTS, DEFAULT_ITEMS, DEFAULT_SHIPMENT_STATUS_SETTINGS } from './services/dataService';
 
 // Extended Invoice Type for Dashboard Display
 type DashboardInvoice = InvoiceData & {
@@ -156,7 +145,8 @@ const App: React.FC = () => {
         brandColor: DEFAULT_BRAND_COLOR,
         invoicePrefix: '',
         invoiceStartNumber: 1000,
-        location: ''
+        location: '',
+        shipmentStatusSettings: DEFAULT_SHIPMENT_STATUS_SETTINGS
     }
   });
   
@@ -171,6 +161,9 @@ const App: React.FC = () => {
   // Temp state for adding shipment types
   const [tempShipmentName, setTempShipmentName] = useState('');
   const [tempShipmentValue, setTempShipmentValue] = useState('');
+
+  // DnD State for Shipment Statuses
+  const [draggedStatusIndex, setDraggedStatusIndex] = useState<number | null>(null);
 
   // --- Helpers ---
 
@@ -437,6 +430,7 @@ const App: React.FC = () => {
   };
 
   const renderSidebar = () => {
+    // ... existing sidebar code ...
     if (!isMenuOpen || !activeCompany) return null;
     return (
         <div className="fixed inset-0 z-50 flex">
@@ -710,6 +704,53 @@ const App: React.FC = () => {
       });
   };
 
+  // DnD Handlers for Shipment Status
+  const handleStatusDragStart = (e: React.DragEvent, index: number) => {
+      setDraggedStatusIndex(index);
+      e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleStatusDragOver = (e: React.DragEvent, index: number) => {
+      e.preventDefault(); 
+      e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleStatusDrop = (e: React.DragEvent, dropIndex: number) => {
+      e.preventDefault();
+      if (draggedStatusIndex === null || draggedStatusIndex === dropIndex) return;
+
+      const currentSettings = newCompany.settings.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS;
+      const updatedList = [...currentSettings];
+      
+      const [draggedItem] = updatedList.splice(draggedStatusIndex, 1);
+      updatedList.splice(dropIndex, 0, draggedItem);
+      
+      const reorderedList = updatedList.map((item, idx) => ({ ...item, order: idx }));
+
+      setNewCompany(prev => ({
+          ...prev,
+          settings: {
+              ...prev.settings,
+              shipmentStatusSettings: reorderedList
+          }
+      }));
+      setDraggedStatusIndex(null);
+  };
+
+  const handleStatusNameChange = (index: number, newName: string) => {
+      const currentSettings = newCompany.settings.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS;
+      const updatedList = [...currentSettings];
+      updatedList[index] = { ...updatedList[index], name: newName };
+      
+      setNewCompany(prev => ({
+          ...prev,
+          settings: {
+              ...prev.settings,
+              shipmentStatusSettings: updatedList
+          }
+      }));
+  };
+
   const handleSaveCompany = () => {
     if (!newCompany.username || !newCompany.password || !newCompany.settings?.companyName) {
       alert("Please fill in required fields (Company Name, Username, Password)");
@@ -749,7 +790,8 @@ const App: React.FC = () => {
               shipmentTypes: newCompany.settings?.shipmentTypes || c.settings.shipmentTypes,
               tcHeader: newCompany.settings?.tcHeader || c.settings.tcHeader,
               tcEnglish: newCompany.settings?.tcEnglish || c.settings.tcEnglish,
-              tcArabic: newCompany.settings?.tcArabic || c.settings.tcArabic
+              tcArabic: newCompany.settings?.tcArabic || c.settings.tcArabic,
+              shipmentStatusSettings: newCompany.settings?.shipmentStatusSettings || c.settings.shipmentStatusSettings
             }
           };
         }
@@ -783,7 +825,8 @@ const App: React.FC = () => {
           shipmentTypes: newCompany.settings.shipmentTypes || [],
           tcHeader: newCompany.settings.tcHeader || DEFAULT_TC_HEADER,
           tcEnglish: newCompany.settings.tcEnglish || DEFAULT_TC_ENGLISH,
-          tcArabic: newCompany.settings.tcArabic || DEFAULT_TC_ARABIC
+          tcArabic: newCompany.settings.tcArabic || DEFAULT_TC_ARABIC,
+          shipmentStatusSettings: newCompany.settings.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS
         },
         invoices: [],
         financialAccounts: DEFAULT_ACCOUNTS,
@@ -795,7 +838,7 @@ const App: React.FC = () => {
     }
     
     // Reset Form
-    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, invoicePrefix: '', invoiceStartNumber: 1000, location: '' } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, invoicePrefix: '', invoiceStartNumber: 1000, location: '', shipmentStatusSettings: DEFAULT_SHIPMENT_STATUS_SETTINGS } });
     setEditingCompanyId(null);
     setIsBranch(false);
     setSelectedParentId('');
@@ -827,7 +870,8 @@ const App: React.FC = () => {
         brandColor: company.settings.brandColor || DEFAULT_BRAND_COLOR,
         invoicePrefix: company.settings.invoicePrefix || '',
         invoiceStartNumber: company.settings.invoiceStartNumber || 1000,
-        location: company.settings.location || ''
+        location: company.settings.location || '',
+        shipmentStatusSettings: company.settings.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS
       }
     });
     // Scroll to top to see form
@@ -836,7 +880,7 @@ const App: React.FC = () => {
 
   const handleCancelEdit = () => {
     setEditingCompanyId(null);
-    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, invoicePrefix: '', invoiceStartNumber: 1000, location: '' } });
+    setNewCompany({ expiryDate: getOneYearFromNow(), parentId: undefined, settings: { shipmentTypes: [], isVatEnabled: false, tcHeader: DEFAULT_TC_HEADER, tcEnglish: DEFAULT_TC_ENGLISH, tcArabic: DEFAULT_TC_ARABIC, brandColor: DEFAULT_BRAND_COLOR, invoicePrefix: '', invoiceStartNumber: 1000, location: '', shipmentStatusSettings: DEFAULT_SHIPMENT_STATUS_SETTINGS } });
     setTempShipmentName('');
     setTempShipmentValue('');
     setIsBranch(false);
@@ -1015,6 +1059,7 @@ const App: React.FC = () => {
     setView('PREVIEW_INVOICE');
   };
   
+  // ... rest of customer logic ...
   // Customer Edit Logic
   const handleEditCustomerClick = (e: React.MouseEvent, customer: AggregatedCustomer) => {
       e.stopPropagation(); // Prevent row click
@@ -1626,6 +1671,11 @@ const App: React.FC = () => {
   }
 
   if (view === 'DASHBOARD' && activeCompany) {
+    // Dynamically load statuses
+    const companyStatuses = activeCompany.settings.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS;
+    // Ensure they are sorted by 'order'
+    companyStatuses.sort((a, b) => a.order - b.order);
+
     return (
       <div className="min-h-screen bg-gray-50">
         {renderHeader()}
@@ -1671,10 +1721,10 @@ const App: React.FC = () => {
 
           <h3 className="font-bold text-gray-700 mb-4 text-lg">Shipment Status Overview</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-              {SHIPMENT_STATUSES.map(status => (
-                  <div key={status} className="bg-white p-4 rounded shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center hover:shadow-md transition">
-                      <div className="text-2xl font-bold text-blue-900">{statusCounts[status] || 0}</div>
-                      <div className="text-xs text-gray-500 font-medium">{status}</div>
+              {companyStatuses.map(statusSetting => (
+                  <div key={statusSetting.id} className="bg-white p-4 rounded shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center hover:shadow-md transition">
+                      <div className="text-2xl font-bold text-blue-900">{statusCounts[statusSetting.name] || 0}</div>
+                      <div className="text-xs text-gray-500 font-medium">{statusSetting.name}</div>
                   </div>
               ))}
           </div>
@@ -1721,7 +1771,10 @@ const App: React.FC = () => {
     );
   }
 
+  // ... rest of invoice and login views ...
+  // Reuse existing render logic for other views
   if (view === 'INVOICES' && activeCompany) {
+      // Copy the exact return from the original file for INVOICES
       return (
         <div className="min-h-screen bg-gray-50">
           {renderHeader()}
@@ -1918,6 +1971,9 @@ const App: React.FC = () => {
 
   // Settings View (Admin) Return
   if (view === 'SETTINGS' && isSuperAdmin) {
+      const statusSettings = newCompany.settings.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS;
+      const sortedStatusSettings = [...statusSettings].sort((a, b) => a.order - b.order);
+
       return (
         <div className="min-h-screen bg-gray-100 flex flex-col">
             <nav className="bg-gray-800 text-white p-4 shadow-md sticky top-0 z-10">
@@ -2157,6 +2213,40 @@ const App: React.FC = () => {
                                         </span>
                                     ))}
                                 </div>
+                            </div>
+
+                            {/* Section 6: Shipment Status Workflow */}
+                            <div className="bg-blue-50 border border-blue-100 p-4 rounded">
+                                <label className="block text-sm font-bold text-blue-900 mb-2">Shipment Status Workflow (Drag to Reorder)</label>
+                                <ul className="space-y-2">
+                                    {sortedStatusSettings.map((status, index) => (
+                                        <li 
+                                            key={status.id} 
+                                            className={`flex items-center gap-3 bg-white p-2 rounded shadow-sm border ${draggedStatusIndex === index ? 'opacity-50 border-dashed border-blue-500' : 'border-gray-200'}`}
+                                            draggable
+                                            onDragStart={(e) => handleStatusDragStart(e, index)}
+                                            onDragOver={(e) => handleStatusDragOver(e, index)}
+                                            onDrop={(e) => handleStatusDrop(e, index)}
+                                        >
+                                            {/* Drag Handle */}
+                                            <div className="cursor-grab text-gray-400 hover:text-gray-600 flex flex-col justify-center gap-[2px] w-4 items-center h-full py-1">
+                                                <div className="w-3 h-[2px] bg-current rounded-full"></div>
+                                                <div className="w-3 h-[2px] bg-current rounded-full"></div>
+                                                <div className="w-3 h-[2px] bg-current rounded-full"></div>
+                                            </div>
+                                            
+                                            <div className="flex-1">
+                                                <input 
+                                                    type="text" 
+                                                    className="w-full text-sm font-semibold text-gray-700 bg-transparent focus:outline-none focus:border-b focus:border-blue-500"
+                                                    value={status.name}
+                                                    onChange={(e) => handleStatusNameChange(index, e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="text-xs text-gray-400 font-mono">#{index + 1}</div>
+                                        </li>
+                                    ))}
+                                </ul>
                             </div>
 
                             <button onClick={handleSaveCompany} className="w-full bg-blue-800 text-white font-bold py-3 rounded hover:bg-blue-700 transition shadow-lg">

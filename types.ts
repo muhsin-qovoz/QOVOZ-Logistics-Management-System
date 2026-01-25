@@ -1,5 +1,4 @@
 
-
 export interface InvoiceItem {
   slNo: number;
   description: string;
@@ -13,15 +12,14 @@ export interface ItemMaster {
   name: string;
 }
 
-export type ShipmentStatus = 
-  | 'Received'
-  | 'Departed from Branch'
-  | 'Received at HO'
-  | 'Loaded into Container'
-  | 'In transit'
-  | 'Arrived at destination'
-  | 'Out for delivery'
-  | 'Delivered';
+// Changed from union type to string to support dynamic custom statuses
+export type ShipmentStatus = string;
+
+export interface ShipmentStatusSetting {
+  id: string;
+  name: string;
+  order: number;
+}
 
 export interface StatusHistoryItem {
   status: ShipmentStatus;
@@ -89,7 +87,7 @@ export interface SavedCustomer {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL' | 'FINANCE' | 'ITEMS';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL' | 'FINANCE' | 'ITEMS' | 'ADMIN_COMPANY_FORM';
 
 export interface ShipmentType {
   name: string;
@@ -117,6 +115,8 @@ export interface AppSettings {
   tcHeader?: string;
   tcEnglish?: string;
   tcArabic?: string;
+  // Dynamic Shipment Statuses
+  shipmentStatusSettings?: ShipmentStatusSetting[];
 }
 
 // --- Finance Types ---

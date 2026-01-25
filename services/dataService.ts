@@ -1,5 +1,5 @@
 
-import { Company, InvoiceData, FinancialTransaction, FinancialAccount, ItemMaster, InvoiceItem } from '../types';
+import { Company, InvoiceData, FinancialTransaction, FinancialAccount, ItemMaster, InvoiceItem, ShipmentStatusSetting } from '../types';
 import { supabase } from './supabaseClient';
 
 export const DEFAULT_TC_HEADER = "Terms and Conditions";
@@ -25,6 +25,17 @@ export const DEFAULT_ITEMS: ItemMaster[] = [
     { id: 'itm_5', name: 'HOUSEHOLD ITEMS' },
     { id: 'itm_6', name: 'BOOKS' },
     { id: 'itm_7', name: 'TOYS' }
+];
+
+export const DEFAULT_SHIPMENT_STATUS_SETTINGS: ShipmentStatusSetting[] = [
+    { id: 'sts_1', name: 'Received', order: 0 },
+    { id: 'sts_2', name: 'Departed from Branch', order: 1 },
+    { id: 'sts_3', name: 'Received at HO', order: 2 },
+    { id: 'sts_4', name: 'Loaded into Container', order: 3 },
+    { id: 'sts_5', name: 'In transit', order: 4 },
+    { id: 'sts_6', name: 'Arrived at destination', order: 5 },
+    { id: 'sts_7', name: 'Out for delivery', order: 6 },
+    { id: 'sts_8', name: 'Delivered', order: 7 }
 ];
 
 export const formatDate = (date: Date): string => {
@@ -214,7 +225,8 @@ const createCompany = (
             tcArabic: DEFAULT_TC_ARABIC,
             invoicePrefix,
             invoiceStartNumber: 1005,
-            location
+            location,
+            shipmentStatusSettings: DEFAULT_SHIPMENT_STATUS_SETTINGS
         },
         invoices,
         financialAccounts: DEFAULT_ACCOUNTS,
@@ -266,10 +278,14 @@ export const fetchCompanies = async (): Promise<Company[]> => {
             // Parse the JSONB 'data' column back into Company objects
             const companies: Company[] = data.map((row: any) => {
                 const c = row.data as Company;
-                // Ensure defaults are populated for backward compatibility
+                // Ensure defaults are populated for backward compatibility (e.g. legacy data without status settings)
                 return {
                     ...c,
-                    items: c.items || DEFAULT_ITEMS
+                    items: c.items || DEFAULT_ITEMS,
+                    settings: {
+                        ...c.settings,
+                        shipmentStatusSettings: c.settings.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS
+                    }
                 };
             });
             return companies;
