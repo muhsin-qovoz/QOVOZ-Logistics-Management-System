@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { InvoiceData } from "../types";
 
@@ -28,7 +29,7 @@ export const extractInvoiceData = async (base64Image: string): Promise<Partial<I
     const ai = new GoogleGenAI({ apiKey });
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: {
         parts: [
             {
