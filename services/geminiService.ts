@@ -19,8 +19,13 @@ export const fileToGenerativePart = async (file: File): Promise<string> => {
 export const extractInvoiceData = async (base64Image: string): Promise<Partial<InvoiceData>> => {
   try {
     // Initialize the AI client lazily inside the function.
-    // The API key is obtained exclusively from process.env.API_KEY as per guidelines.
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // This prevents the entire app from crashing on load if the API Key is missing.
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("Gemini API Key is missing. Please check your environment variables.");
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
