@@ -1,5 +1,6 @@
 
 import { Company, InvoiceData, FinancialTransaction, FinancialAccount, ItemMaster, InvoiceItem } from '../types';
+import { supabase } from './supabaseClient';
 
 export const DEFAULT_TC_HEADER = "Terms and Conditions";
 export const DEFAULT_TC_ENGLISH = "All business is undertaken subject to the Standard Trading Conditions of the Company, which are available upon request.";
@@ -25,9 +26,6 @@ export const DEFAULT_ITEMS: ItemMaster[] = [
     { id: 'itm_6', name: 'BOOKS' },
     { id: 'itm_7', name: 'TOYS' }
 ];
-
-// Changed key to force a reset of data
-const STORAGE_KEY = 'qovoz_companies_v2_comprehensive';
 
 export const formatDate = (date: Date): string => {
     const d = new Date(date);
@@ -87,7 +85,6 @@ export const generateMockTransactions = (invoices: InvoiceData[]): FinancialTran
 // --- DATA GENERATORS ---
 
 const NAMES = ['Ahmed Al-Fagih', 'Sarah Johnson', 'Mohammed Ali', 'Fatima Syed', 'Global Trading Est', 'Quick Ship Ltd', 'Riyadh Retailers'];
-const LOCATIONS = ['Riyadh', 'Jeddah', 'Dammam', 'Mecca', 'Medina', 'Tabuk'];
 const SHIPMENT_TYPES = [{ name: 'AIR CARGO', value: 15 }, { name: 'SEA CARGO', value: 5 }, { name: 'LAND CARGO', value: 3 }];
 
 const generateInvoice = (
@@ -251,26 +248,57 @@ const generateComprehensiveMockData = (): Company[] => {
     return companies;
 };
 
-export const getStoredCompanies = (): Company[] => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-        try {
-            const companies = JSON.parse(stored);
-            return companies.map((c: Company) => ({
-                ...c,
-                items: c.items || DEFAULT_ITEMS
-            }));
-        } catch (e) {
-            console.error("Failed to parse companies", e);
+// --- SUPABASE INTEGRATION ---
+
+export const fetchCompanies = async (): Promise<Company[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('companies')
+            .select('data');
+
+        if (error) {
+            console.error('Error fetching companies:', error);
+            // Fallback to local logic if DB fails/is empty for demo
+            return [];
         }
+
+        if (data && data.length > 0) {
+            // Parse the JSONB 'data' column back into Company objects
+            const companies: Company[] = data.map((row: any) => {
+                const c = row.data as Company;
+                // Ensure defaults are populated for backward compatibility
+                return {
+                    ...c,
+                    items: c.items || DEFAULT_ITEMS
+                };
+            });
+            return companies;
+        } else {
+            // If Supabase is empty, initialize it with mock data
+            console.log("Database empty. initializing with mock data...");
+            const mockData = generateComprehensiveMockData();
+            await persistAllCompanies(mockData);
+            return mockData;
+        }
+    } catch (e) {
+        console.error("Unexpected error fetching data", e);
+        return [];
     }
-    
-    // If empty or new key, generate fresh comprehensive mock data
-    const freshData = generateComprehensiveMockData();
-    saveStoredCompanies(freshData);
-    return freshData;
 };
 
-export const saveStoredCompanies = (companies: Company[]) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(companies));
+export const persistAllCompanies = async (companies: Company[]) => {
+    // This is inefficient but compatible with existing array-based state logic.
+    // It upserts every company in the array to the 'companies' table.
+    const updates = companies.map(company => ({
+        id: company.id,
+        data: company
+    }));
+
+    const { error } = await supabase
+        .from('companies')
+        .upsert(updates, { onConflict: 'id' });
+
+    if (error) {
+        console.error("Error saving companies to Supabase:", error);
+    }
 };

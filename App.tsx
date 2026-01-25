@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction, ItemMaster } from './types';
 import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
-import { getStoredCompanies, saveStoredCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR, DEFAULT_ACCOUNTS, DEFAULT_ITEMS } from './services/dataService';
+import { fetchCompanies, persistAllCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR, DEFAULT_ACCOUNTS, DEFAULT_ITEMS } from './services/dataService';
 
 const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'Received',
@@ -76,17 +76,26 @@ const StatusHistoryModal = ({ invoice, onClose }: { invoice: InvoiceData, onClos
 const App: React.FC = () => {
   // --- State ---
   
-  // "Backend" Database with LocalStorage persistence via Data Service
-  const [companies, setCompanies] = useState<Company[]>(() => getStoredCompanies());
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Save to local storage whenever companies change
+  // Load initial data from Supabase
   useEffect(() => {
-    try {
-        saveStoredCompanies(companies);
-    } catch (e) {
-        console.error("Failed to save companies to storage", e);
+    const loadData = async () => {
+        setIsLoading(true);
+        const data = await fetchCompanies();
+        setCompanies(data);
+        setIsLoading(false);
+    };
+    loadData();
+  }, []);
+
+  // Save to Supabase whenever companies change (Debounced naturally by user action frequency)
+  useEffect(() => {
+    if (!isLoading && companies.length > 0) {
+        persistAllCompanies(companies);
     }
-  }, [companies]);
+  }, [companies, isLoading]);
 
   // Session
   const [activeCompanyId, setActiveCompanyId] = useState<string | null>(null);
@@ -295,6 +304,116 @@ const App: React.FC = () => {
     return result;
   }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, view]);
 
+  // --- Derived State for Dashboard ---
+  const filteredInvoices = useMemo(() => {
+    let result = allNetworkInvoices;
+
+    // 1. Location Filter
+    if (dashboardLocationFilter !== 'ALL') {
+      result = result.filter(inv => inv._companyId === dashboardLocationFilter);
+    }
+
+    // 2. Search Query
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(inv => 
+        inv.invoiceNo.toLowerCase().includes(q) ||
+        inv.shipper.name.toLowerCase().includes(q) ||
+        inv.shipper.tel.includes(q)
+      );
+    }
+
+    // 3. Date Filter
+    const checkDate = (dateStr: string) => {
+        const [day, month, year] = dateStr.split('/').map(Number);
+        const invDate = new Date(year, month - 1, day);
+        
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        invDate.setHours(0,0,0,0);
+
+        if (dateRange === 'TODAY') return invDate.getTime() === today.getTime();
+        if (dateRange === 'WEEK') {
+            const weekAgo = new Date(today);
+            weekAgo.setDate(today.getDate() - 7);
+            return invDate >= weekAgo && invDate <= today;
+        }
+        if (dateRange === 'MONTH') {
+            const monthAgo = new Date(today);
+            monthAgo.setDate(today.getDate() - 30);
+            return invDate >= monthAgo && invDate <= today;
+        }
+        if (dateRange === 'LAST_MONTH') {
+            const startLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+            const endLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+            return invDate >= startLastMonth && invDate <= endLastMonth;
+        }
+        if (dateRange === 'CUSTOM' && customStart && customEnd) {
+            const start = new Date(customStart);
+            start.setHours(0,0,0,0);
+            const end = new Date(customEnd);
+            end.setHours(23,59,59,999);
+            return invDate >= start && invDate <= end;
+        }
+        return true;
+    };
+
+    result = result.filter(inv => checkDate(inv.date));
+
+    // Sort by Date Descending
+    return result.sort((a, b) => {
+        const [da, ma, ya] = a.date.split('/').map(Number);
+        const [db, mb, yb] = b.date.split('/').map(Number);
+        return new Date(yb, mb-1, db).getTime() - new Date(ya, ma-1, da).getTime();
+    });
+  }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, dateRange, customStart, customEnd]);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    filteredInvoices.forEach(inv => {
+        const status = inv.status || 'Received';
+        counts[status] = (counts[status] || 0) + 1;
+    });
+    return counts;
+  }, [filteredInvoices]);
+
+  const stats = useMemo(() => {
+      const totalShipments = filteredInvoices.length;
+      const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
+      
+      let transactions: FinancialTransaction[] = [];
+      if (dashboardLocationFilter === 'ALL') {
+          transactions = relatedCompanies.flatMap(c => c.financialTransactions);
+      } else {
+          const target = relatedCompanies.find(c => c.id === dashboardLocationFilter);
+          transactions = target ? target.financialTransactions : [];
+      }
+      
+      let cashInHand = 0;
+      let bankBalance = 0;
+      
+      transactions.forEach(tx => {
+          const val = tx.type === 'INCOME' ? tx.amount : -tx.amount;
+          if (tx.paymentMode === 'BANK') {
+              bankBalance += val;
+          } else {
+              cashInHand += val;
+          }
+      });
+
+      return { totalShipments, totalRevenue, cashInHand, bankBalance };
+  }, [filteredInvoices, relatedCompanies, dashboardLocationFilter]);
+
+  const getRangeLabel = () => {
+      if (dateRange === 'TODAY') return 'Today';
+      if (dateRange === 'WEEK') return 'Last 7 Days';
+      if (dateRange === 'MONTH') return 'Last 30 Days';
+      if (dateRange === 'LAST_MONTH') return 'Last Month';
+      if (dateRange === 'CUSTOM') return `${customStart} to ${customEnd}`;
+      return '';
+  };
+
+
   // --- Handlers ---
   
     const renderHeader = () => {
@@ -399,7 +518,8 @@ const App: React.FC = () => {
   };
 
   const renderFilterBar = () => {
-      const isBranchUser = activeCompany?.parentId; // Identify if branch user
+      // ... existing renderFilterBar code ...
+      const isBranchUser = activeCompany?.parentId; 
       
       return (
       <div className="bg-white p-4 rounded shadow mb-6 flex flex-col xl:flex-row gap-4 items-center">
@@ -419,7 +539,6 @@ const App: React.FC = () => {
              </div>
 
              <div className="flex flex-col md:flex-row gap-2 items-center w-full xl:w-auto">
-                {/* Location Filter */}
                 <select
                     className={`border border-gray-300 rounded px-3 py-2 bg-gray-300 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-auto ${isBranchUser ? 'opacity-60 cursor-not-allowed' : ''}`}
                     value={dashboardLocationFilter}
@@ -434,7 +553,6 @@ const App: React.FC = () => {
                     ))}
                 </select>
 
-                {/* Hide Date Range Picker in Customers View */}
                 {view !== 'CUSTOMERS' && view !== 'ITEMS' && (
                     <>
                         <div className="bg-gray-200 p-1 rounded-lg flex items-center gap-1 self-start sm:self-auto overflow-x-auto max-w-full">
@@ -487,6 +605,7 @@ const App: React.FC = () => {
           </div>
   )};
 
+  // ... rest of handlers ...
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -543,15 +662,22 @@ const App: React.FC = () => {
   const handleNavClick = (newView: ViewState) => {
       setView(newView);
       setIsMenuOpen(false);
-      
-      // Reset search query when changing views for better UX
       setSearchQuery('');
-      
-      // Reset selections
       setSelectedCustomer(null);
-
       if (newView === 'CREATE_INVOICE') {
           handleCreateInvoice();
+      }
+      if (newView === 'BRANCH_MANAGEMENT' && activeCompany) {
+         setEditingCompanyId(activeCompany.id);
+         setNewCompany({
+             username: activeCompany.username,
+             password: activeCompany.password,
+             expiryDate: activeCompany.expiryDate,
+             parentId: activeCompany.parentId,
+             settings: { ...activeCompany.settings }
+         });
+         setIsBranch(!!activeCompany.parentId);
+         setSelectedParentId(activeCompany.parentId || '');
       }
   };
   
@@ -726,19 +852,14 @@ const App: React.FC = () => {
 
     let nextNum = startNum;
 
-    // Logic to calculate next invoice number based on existing invoices
-    // We assume the invoices are sorted new-to-old, so index 0 is the latest.
     if (activeInvoices.length > 0) {
         const lastInvoiceNo = activeInvoices[0].invoiceNo;
-        // Attempt to extract the number part from the string
-        // If invoice is "HQ-1005", replace "HQ-" with "" -> "1005"
         const numberPart = lastInvoiceNo.replace(prefix, '');
         const parsed = parseInt(numberPart, 10);
 
         if (!isNaN(parsed)) {
             nextNum = parsed + 1;
         } else {
-            // Fallback: If stripping prefix failed (maybe old data format), try finding any number at the end
             const match = lastInvoiceNo.match(/(\d+)$/);
             if (match) {
                  nextNum = parseInt(match[1], 10) + 1;
@@ -752,7 +873,7 @@ const App: React.FC = () => {
       invoiceNo: nextInvoiceNo,
       date: formatDate(new Date()),
       shipmentType: activeCompany.settings.shipmentTypes[0]?.name || '',
-      status: 'Received', // Default status
+      status: 'Received', 
       statusHistory: [{ status: 'Received', timestamp: new Date().toISOString() }],
       shipper: { name: '', idNo: '', tel: '', vatnos: '', pcs: 0, weight: 0 }, 
       consignee: { name: '', address: '', post: '', pin: '', country: '', district: '', state: '', tel: '', tel2: '' },
@@ -770,9 +891,6 @@ const App: React.FC = () => {
   };
 
   const handleInvoiceSubmit = (data: InvoiceData) => {
-    // When submitting, check if this invoice belongs to ANY company in our DB (edit mode)
-    // If not found, it's a new invoice for the ACTIVE company.
-    
     let foundAndUpdated = false;
 
     setCompanies(prev => {
@@ -785,15 +903,12 @@ const App: React.FC = () => {
             updatedInvoices[existingIndex] = data;
 
             // --- FINANCE LINKING (Re-write) ---
-            // 1. Remove ALL existing transactions for this invoice reference
             let updatedTransactions = (c.financialTransactions || []).filter(t => t.referenceId !== data.invoiceNo);
 
-            // 2. Generate New Transactions
             const timestamp = new Date().toISOString();
             const date = new Date().toISOString().split('T')[0];
 
             if (data.paymentMode === 'SPLIT' && data.splitDetails) {
-                // Add Cash Part
                 if (data.splitDetails.cash > 0) {
                         updatedTransactions.push({
                         id: `tx_${data.invoiceNo}_cash_${Date.now()}`,
@@ -804,7 +919,6 @@ const App: React.FC = () => {
                         paymentMode: 'CASH'
                     });
                 }
-                // Add Bank Part
                 if (data.splitDetails.bank > 0) {
                         updatedTransactions.push({
                         id: `tx_${data.invoiceNo}_bank_${Date.now()}`,
@@ -816,7 +930,6 @@ const App: React.FC = () => {
                     });
                 }
             } else {
-                // Single Transaction
                 updatedTransactions.push({
                     id: `tx_${data.invoiceNo}_${Date.now()}`,
                     date, timestamp, accountId: 'acc_sales', type: 'INCOME',
@@ -840,7 +953,6 @@ const App: React.FC = () => {
       if (activeCompanyId) {
           return prev.map(c => {
               if (c.id === activeCompanyId) {
-                  // Create accompanying transaction(s)
                   const timestamp = new Date().toISOString();
                   const date = new Date().toISOString().split('T')[0];
                   let newTransactions: FinancialTransaction[] = [];
@@ -922,11 +1034,9 @@ const App: React.FC = () => {
       }
 
       setCompanies(prev => prev.map(company => {
-          // Only update companies that might contain this customer (technically just the one from companyId, but we check matching logic)
            if (company.id !== editingCustomer.companyId) return company;
 
            const updatedInvoices = company.invoices.map(inv => {
-                // Match logic: Same as aggregation
                 const shipper = inv.shipper;
                 const identityKey = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
                 const key = `${identityKey}_${company.id}`;
@@ -1024,878 +1134,476 @@ const App: React.FC = () => {
       }));
   };
 
+  // --- Render Functions ---
 
-  // --- Filtering & Stats ---
-
-  const parseDateStr = (dateStr: string): Date => {
-    const parts = dateStr.split('/');
-    if (parts.length === 3) {
-      return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-    }
-    return new Date();
-  };
-
-  const filteredInvoices = useMemo(() => {
-    // Start with all invoices from the relevant network (HQ + Branches)
-    let filtered = allNetworkInvoices;
-
-    // 1. Dashboard Location Filter
-    if (dashboardLocationFilter !== 'ALL') {
-        filtered = filtered.filter(inv => inv._companyId === dashboardLocationFilter);
-    }
-
-    // 2. Search Query
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(inv => 
-        inv.invoiceNo.toLowerCase().includes(q) ||
-        inv.consignee.name.toLowerCase().includes(q) ||
-        inv.shipper.name.toLowerCase().includes(q) ||
-        inv.consignee.tel.includes(q) ||
-        inv.shipper.tel.includes(q) ||
-        inv.date.includes(q)
-      );
-    }
-
-    // 3. Date Range
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    
-    filtered = filtered.filter(inv => {
-      const invDate = parseDateStr(inv.date);
-      invDate.setHours(0,0,0,0);
-
-      if (dateRange === 'TODAY') return invDate.getTime() === today.getTime();
-      if (dateRange === 'WEEK') {
-        const startOfWeek = new Date(today);
-        startOfWeek.setDate(today.getDate() - today.getDay()); 
-        return invDate >= startOfWeek;
-      }
-      if (dateRange === 'MONTH') return invDate.getMonth() === today.getMonth() && invDate.getFullYear() === today.getFullYear();
-      if (dateRange === 'LAST_MONTH') {
-        const lastMonth = new Date(today);
-        lastMonth.setMonth(lastMonth.getMonth() - 1);
-        return invDate.getMonth() === lastMonth.getMonth() && invDate.getFullYear() === lastMonth.getFullYear();
-      }
-      if (dateRange === 'CUSTOM') {
-        if (!customStart && !customEnd) return true;
-        const start = customStart ? new Date(customStart) : new Date(0);
-        const end = customEnd ? new Date(customEnd) : new Date(9999, 11, 31);
-        start.setHours(0,0,0,0);
-        end.setHours(23,59,59,999);
-        return invDate >= start && invDate <= end;
-      }
-      return true;
-    });
-
-    return filtered;
-  }, [allNetworkInvoices, dashboardLocationFilter, searchQuery, dateRange, customStart, customEnd, view]);
-
-  const stats = useMemo(() => {
-    const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
-    const totalShipments = filteredInvoices.length;
-
-    // Calculate Cash/Bank from transactions associated with the visible companies
-    // filteredInvoices tells us which companies are "active" in the view if filtered by location, 
-    // but filteredInvoices is also filtered by date/search. 
-    // Balances should ignore date range of the dashboard filter (usually).
-    // Balances should respect Location filter.
-
-    let relevantCompanies: Company[] = [];
-    if (dashboardLocationFilter === 'ALL') {
-        relevantCompanies = relatedCompanies;
-    } else {
-        const c = companies.find(co => co.id === dashboardLocationFilter);
-        if (c) relevantCompanies = [c];
-    }
-
-    let cashInHand = 0;
-    let bankBalance = 0;
-
-    relevantCompanies.forEach(comp => {
-        (comp.financialTransactions || []).forEach(tx => {
-             const amt = tx.amount;
-             // Default to CASH if undefined
-             const mode = tx.paymentMode || 'CASH'; 
-             
-             if (tx.type === 'INCOME') {
-                 if (mode === 'BANK') bankBalance += amt;
-                 else cashInHand += amt;
-             } else { // EXPENSE
-                 if (mode === 'BANK') bankBalance -= amt;
-                 else cashInHand -= amt;
-             }
-        });
-    });
-
-    return { totalRevenue, totalShipments, cashInHand, bankBalance };
-  }, [filteredInvoices, dashboardLocationFilter, relatedCompanies, companies]);
-
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    filteredInvoices.forEach(inv => {
-      const s = inv.status || 'Received';
-      counts[s] = (counts[s] || 0) + 1;
-    });
-    return counts;
-  }, [filteredInvoices]);
-
-  const getRangeLabel = () => {
-    switch(dateRange) {
-      case 'TODAY': return 'Today';
-      case 'WEEK': return 'This Week';
-      case 'MONTH': return 'This Month';
-      case 'LAST_MONTH': return 'Last Month';
-      case 'CUSTOM': return 'Custom Range';
-      default: return '';
-    }
-  };
-
-
-  // --- VIEWS ---
-
-  // History Modal Renderer
   const renderHistoryModal = () => (
-      viewingHistoryInvoice && (
-          <StatusHistoryModal 
-              invoice={viewingHistoryInvoice} 
-              onClose={() => setViewingHistoryInvoice(null)} 
-          />
-      )
+    viewingHistoryInvoice && (
+        <StatusHistoryModal 
+            invoice={viewingHistoryInvoice} 
+            onClose={() => setViewingHistoryInvoice(null)} 
+        />
+    )
   );
 
-  const renderEditCustomerModal = () => (
-      editingCustomer && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] animate-fade-in p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
-                <div className="p-6 border-b">
-                    <h3 className="text-xl font-bold text-gray-800">Edit Customer Details</h3>
-                    <p className="text-xs text-gray-500 mt-1">Updates will apply to all <strong>{editingCustomer.totalShipments}</strong> linked invoices.</p>
-                </div>
-                <div className="p-6 space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
-                        <input 
-                            type="text" 
-                            className="w-full border p-2 rounded bg-gray-100"
-                            value={editCustomerForm.name}
-                            onChange={e => setEditCustomerForm({...editCustomerForm, name: e.target.value})}
-                        />
+  const renderItems = () => (
+    <div className="min-h-screen bg-gray-50">
+        {renderHeader()}
+        {renderSidebar()}
+        <main className="max-w-4xl mx-auto p-6">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">Item Master</h2>
+                <button 
+                    onClick={() => { setEditingItem(null); setItemFormName(''); setIsItemModalOpen(true); }}
+                    className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 font-bold"
+                >
+                    + Add New Item
+                </button>
+            </div>
+
+            <div className="bg-white rounded shadow overflow-hidden">
+                <table className="w-full text-left">
+                    <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
+                        <tr>
+                            <th className="p-4">Item Name</th>
+                            <th className="p-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {(activeCompany?.items || []).map((item) => (
+                            <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                                <td className="p-4 font-bold text-gray-700">{item.name}</td>
+                                <td className="p-4 text-right">
+                                    <button 
+                                        onClick={() => { setEditingItem(item); setItemFormName(item.name); setIsItemModalOpen(true); }}
+                                        className="text-blue-600 hover:text-blue-800 font-bold mr-4 text-sm"
+                                    >
+                                        Edit
+                                    </button>
+                                    <button 
+                                        onClick={() => handleDeleteItem(item.id)}
+                                        className="text-red-500 hover:text-red-700 font-bold text-sm"
+                                    >
+                                        Delete
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                         {(activeCompany?.items || []).length === 0 && (
+                            <tr><td colSpan={2} className="p-6 text-center text-gray-500">No items found.</td></tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+        {isItemModalOpen && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white p-6 rounded shadow-lg w-96">
+                    <h3 className="font-bold text-lg mb-4">{editingItem ? 'Edit Item' : 'Add New Item'}</h3>
+                    <input 
+                        className="w-full border p-2 rounded mb-4"
+                        placeholder="Item Name"
+                        value={itemFormName}
+                        onChange={e => setItemFormName(e.target.value)}
+                        autoFocus
+                    />
+                    <div className="flex justify-end gap-2">
+                        <button onClick={() => setIsItemModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+                        <button onClick={handleSaveItem} className="px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700">Save</button>
                     </div>
-                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
-                        <input 
-                            type="text" 
-                            className="w-full border p-2 rounded bg-gray-100"
-                            value={editCustomerForm.mobile}
-                            onChange={e => setEditCustomerForm({...editCustomerForm, mobile: e.target.value})}
-                        />
-                    </div>
-                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">ID Number</label>
-                        <input 
-                            type="text" 
-                            className="w-full border p-2 rounded bg-gray-100"
-                            value={editCustomerForm.idNo}
-                            onChange={e => setEditCustomerForm({...editCustomerForm, idNo: e.target.value})}
-                        />
-                    </div>
-                </div>
-                <div className="p-6 border-t bg-gray-50 rounded-b-lg flex justify-end gap-3">
-                    <button 
-                        onClick={() => setEditingCustomer(null)}
-                        className="px-4 py-2 text-gray-700 font-medium hover:bg-gray-200 rounded transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button 
-                        onClick={handleSaveCustomerDetails}
-                        className="px-4 py-2 bg-blue-900 text-white font-bold rounded hover:bg-blue-800 shadow transition-colors"
-                    >
-                        Save Changes
-                    </button>
                 </div>
             </div>
-          </div>
-      )
+        )}
+    </div>
   );
 
-  const renderFinanceView = () => {
-    if (!activeCompany) return null;
-
-    // Filter transactions for display
-    const transactions = activeCompany.financialTransactions || [];
-    
-    // Sort transactions date desc
-    transactions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-    // Calculate Balances
-    const accountBalances = (activeCompany.financialAccounts || []).map(acc => {
-        const total = transactions
-            .filter(t => t.accountId === acc.id)
-            .reduce((sum, t) => sum + t.amount, 0);
-        return { ...acc, balance: total };
-    });
-
-    const totalRevenue = transactions.filter(t => t.type === 'INCOME').reduce((sum, t) => sum + t.amount, 0);
-    const totalExpense = transactions.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + t.amount, 0);
-    const netProfit = totalRevenue - totalExpense;
-
-    return (
-        <div className="min-h-screen bg-gray-50">
-            {renderHeader()}
-            {renderSidebar()}
+  const renderCustomers = () => (
+    <div className="min-h-screen bg-gray-50">
+        {renderHeader()}
+        {renderSidebar()}
+        <main className="max-w-7xl mx-auto p-6">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Customers</h2>
+            {renderFilterBar()} 
+            <div className="bg-white rounded shadow overflow-hidden">
+                 <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-100 text-gray-600 font-bold">
+                        <tr>
+                            <th className="p-4">Name</th>
+                            <th className="p-4">Mobile</th>
+                            <th className="p-4">ID No</th>
+                            <th className="p-4">Location</th>
+                            <th className="p-4 text-center">Shipments</th>
+                            <th className="p-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {customers.map((c) => (
+                            <tr key={c.key} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => { setSelectedCustomer(c); setView('CUSTOMER_DETAIL'); }}>
+                                <td className="p-4 font-bold text-blue-900">{c.name}</td>
+                                <td className="p-4">{c.mobile}</td>
+                                <td className="p-4 font-mono">{c.idNo}</td>
+                                <td className="p-4 text-xs text-gray-500">{c.location}</td>
+                                <td className="p-4 text-center font-bold">{c.totalShipments}</td>
+                                <td className="p-4 text-right">
+                                    <button 
+                                        onClick={(e) => handleEditCustomerClick(e, c)}
+                                        className="text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-100 font-bold text-xs"
+                                    >
+                                        Edit Details
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                 </table>
+            </div>
             
-            {/* Add Transaction Modal */}
-            {isAddTransactionOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] animate-fade-in p-4">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-                        <div className="p-4 border-b">
-                            <h3 className="text-xl font-bold text-gray-800">Add Transaction</h3>
-                        </div>
-                        <div className="p-6 space-y-4">
+            {/* Edit Customer Modal */}
+            {editingCustomer && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded shadow-lg w-96">
+                        <h3 className="font-bold text-lg mb-4 text-blue-900">Edit Customer Details</h3>
+                        <div className="space-y-3">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Transaction Type</label>
-                                <select 
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.type}
-                                    onChange={e => setNewTransaction({...newTransaction, type: e.target.value as any})}
-                                >
-                                    <option value="EXPENSE">Expense (Money Out)</option>
-                                    <option value="INCOME">Income (Money In)</option>
-                                </select>
-                            </div>
-                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Category / Account</label>
-                                <select 
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.accountId}
-                                    onChange={e => setNewTransaction({...newTransaction, accountId: e.target.value})}
-                                >
-                                    <option value="">Select Account</option>
-                                    {(activeCompany.financialAccounts || [])
-                                        .filter(acc => acc.type === (newTransaction.type === 'INCOME' ? 'REVENUE' : 'EXPENSE'))
-                                        .map(acc => (
-                                            <option key={acc.id} value={acc.id}>{acc.name}</option>
-                                        ))
-                                    }
-                                </select>
+                                <label className="text-xs font-bold text-gray-500">Name</label>
+                                <input className="w-full border p-2 rounded" value={editCustomerForm.name} onChange={e => setEditCustomerForm({...editCustomerForm, name: e.target.value})} />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Mode</label>
-                                <select 
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.paymentMode || 'CASH'}
-                                    onChange={e => setNewTransaction({...newTransaction, paymentMode: e.target.value as 'CASH' | 'BANK'})}
-                                >
-                                    <option value="CASH">Cash</option>
-                                    <option value="BANK">Bank</option>
-                                </select>
+                                <label className="text-xs font-bold text-gray-500">Mobile</label>
+                                <input className="w-full border p-2 rounded" value={editCustomerForm.mobile} onChange={e => setEditCustomerForm({...editCustomerForm, mobile: e.target.value})} />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
-                                <input 
-                                    type="number"
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.amount || ''}
-                                    onChange={e => setNewTransaction({...newTransaction, amount: parseFloat(e.target.value)})}
-                                    placeholder="0.00"
-                                />
-                            </div>
-                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                                <input 
-                                    type="date"
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.date}
-                                    onChange={e => setNewTransaction({...newTransaction, date: e.target.value})}
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                                <input 
-                                    type="text"
-                                    className="w-full border p-2 rounded bg-gray-100"
-                                    value={newTransaction.description}
-                                    onChange={e => setNewTransaction({...newTransaction, description: e.target.value})}
-                                    placeholder="e.g. Fuel for Truck A"
-                                />
+                                <label className="text-xs font-bold text-gray-500">ID No</label>
+                                <input className="w-full border p-2 rounded" value={editCustomerForm.idNo} onChange={e => setEditCustomerForm({...editCustomerForm, idNo: e.target.value})} />
                             </div>
                         </div>
-                        <div className="p-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
-                            <button 
-                                onClick={() => setIsAddTransactionOpen(false)}
-                                className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded"
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                onClick={handleSaveTransaction}
-                                className="px-6 py-2 bg-blue-900 text-white rounded font-bold hover:bg-blue-800"
-                            >
-                                Save Transaction
-                            </button>
+                        <div className="flex justify-end gap-2 mt-6">
+                            <button onClick={() => setEditingCustomer(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+                            <button onClick={handleSaveCustomerDetails} className="px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700">Update All Records</button>
                         </div>
                     </div>
                 </div>
             )}
-
-            <main className="max-w-7xl mx-auto p-4 md:p-6">
-                <div className="flex justify-between items-center mb-6">
-                     <div className="flex items-center gap-4">
-                        <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                            &larr; Back to Dashboard
-                        </button>
-                        <h2 className="text-2xl font-bold text-gray-800">Financial Accounts</h2>
-                     </div>
-                     <button 
-                        onClick={() => setIsAddTransactionOpen(true)}
-                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 shadow font-bold flex items-center gap-2"
-                     >
-                         <span>+</span> New Transaction
-                     </button>
-                </div>
-
-                {/* Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                     <div className="bg-white p-6 rounded shadow-sm border-l-4 border-blue-500">
-                        <div className="text-gray-500 text-sm">Total Revenue (All Time)</div>
-                        <div className="text-3xl font-bold text-gray-800">SAR {totalRevenue.toFixed(2)}</div>
-                    </div>
-                     <div className="bg-white p-6 rounded shadow-sm border-l-4 border-red-500">
-                        <div className="text-gray-500 text-sm">Total Expenses (All Time)</div>
-                        <div className="text-3xl font-bold text-gray-800">SAR {totalExpense.toFixed(2)}</div>
-                    </div>
-                    <div className="bg-white p-6 rounded shadow-sm border-l-4 border-green-500">
-                        <div className="text-gray-500 text-sm">Net Profit</div>
-                        <div className={`text-3xl font-bold ${netProfit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                            SAR {netProfit.toFixed(2)}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Accounts Grid */}
-                <h3 className="font-bold text-gray-700 mb-4">Account Balances</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                    {accountBalances.map(acc => (
-                        <div key={acc.id} className="bg-white p-4 rounded shadow border border-gray-100 flex justify-between items-center">
-                            <div>
-                                <h4 className="font-bold text-gray-800">{acc.name}</h4>
-                                <span className={`text-xs px-2 py-0.5 rounded ${acc.type === 'REVENUE' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{acc.type}</span>
-                            </div>
-                            <div className="text-right">
-                                <span className="block text-xl font-bold text-gray-900">{acc.balance.toFixed(2)}</span>
-                                <span className="text-xs text-gray-400">Total</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-
-                {/* Recent Transactions */}
-                <div className="bg-white rounded shadow overflow-hidden">
-                    <div className="px-6 py-4 border-b">
-                        <h3 className="font-bold text-gray-700">Transaction History</h3>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-50 text-gray-600">
-                                <tr>
-                                    <th className="p-4 border-b">Date</th>
-                                    <th className="p-4 border-b">Description</th>
-                                    <th className="p-4 border-b">Account</th>
-                                    <th className="p-4 border-b">Mode</th>
-                                    <th className="p-4 border-b">Ref ID</th>
-                                    <th className="p-4 border-b text-right">Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {transactions.length > 0 ? (
-                                    transactions.map(t => {
-                                        const accName = activeCompany.financialAccounts?.find(a => a.id === t.accountId)?.name || 'Unknown';
-                                        return (
-                                            <tr key={t.id} className="hover:bg-gray-50 border-b last:border-0">
-                                                <td className="p-4 text-gray-600">{t.date}</td>
-                                                <td className="p-4 font-medium text-gray-800">{t.description}</td>
-                                                <td className="p-4">
-                                                    <span className="bg-gray-100 px-2 py-1 rounded text-xs text-gray-600">{accName}</span>
-                                                </td>
-                                                <td className="p-4 text-xs">
-                                                    <span className={`px-2 py-1 rounded ${t.paymentMode === 'BANK' ? 'bg-indigo-100 text-indigo-800' : 'bg-green-100 text-green-800'}`}>
-                                                        {t.paymentMode || 'CASH'}
-                                                    </span>
-                                                </td>
-                                                <td className="p-4 font-mono text-xs text-blue-600">{t.referenceId || '-'}</td>
-                                                <td className={`p-4 text-right font-bold ${t.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
-                                                    {t.type === 'INCOME' ? '+' : '-'} {t.amount.toFixed(2)}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                ) : (
-                                    <tr>
-                                        <td colSpan={6} className="p-8 text-center text-gray-500">No transactions found.</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-            </main>
-        </div>
-    );
-  };
-
-  const renderItems = () => {
-      if (!activeCompany) return null;
-      const items = activeCompany.items || [];
-
-      return (
-          <div className="min-h-screen bg-gray-50">
-              {renderHeader()}
-              {renderSidebar()}
-              
-              {/* Add/Edit Modal */}
-              {isItemModalOpen && (
-                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] animate-fade-in p-4">
-                      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
-                          <div className="p-4 border-b">
-                              <h3 className="text-xl font-bold text-gray-800">{editingItem ? 'Edit Item' : 'Add New Item'}</h3>
-                          </div>
-                          <div className="p-6">
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
-                              <input 
-                                  type="text" 
-                                  className="w-full border p-2 rounded bg-gray-100 uppercase"
-                                  value={itemFormName}
-                                  onChange={e => setItemFormName(e.target.value)}
-                                  placeholder="e.g. CLOTHES"
-                                  autoFocus
-                              />
-                          </div>
-                          <div className="p-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
-                              <button 
-                                  onClick={() => {
-                                      setIsItemModalOpen(false);
-                                      setItemFormName('');
-                                      setEditingItem(null);
-                                  }}
-                                  className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded"
-                              >
-                                  Cancel
-                              </button>
-                              <button 
-                                  onClick={handleSaveItem}
-                                  className="px-6 py-2 bg-blue-900 text-white rounded font-bold hover:bg-blue-800"
-                              >
-                                  Save Item
-                              </button>
-                          </div>
-                      </div>
-                  </div>
-              )}
-
-              <main className="max-w-7xl mx-auto p-4 md:p-6">
-                  <div className="flex justify-between items-center mb-6">
-                       <div className="flex items-center gap-4">
-                          <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                              &larr; Back to Dashboard
-                          </button>
-                          <h2 className="text-2xl font-bold text-gray-800">Item Master</h2>
-                       </div>
-                       <button 
-                          onClick={() => {
-                              setEditingItem(null);
-                              setItemFormName('');
-                              setIsItemModalOpen(true);
-                          }}
-                          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow font-bold flex items-center gap-2"
-                       >
-                           <span>+</span> Add Item
-                       </button>
-                  </div>
-
-                  <div className="bg-white rounded shadow overflow-hidden">
-                      <div className="px-6 py-4 border-b">
-                          <h3 className="font-bold text-gray-700">Items List ({items.length})</h3>
-                      </div>
-                      <div className="overflow-x-auto">
-                          <table className="w-full text-left text-sm">
-                              <thead className="bg-gray-50 text-gray-600">
-                                  <tr>
-                                      <th className="p-4 border-b">Item Name</th>
-                                      <th className="p-4 border-b text-center w-32">Actions</th>
-                                  </tr>
-                              </thead>
-                              <tbody>
-                                  {items.length > 0 ? (
-                                      items.map(item => (
-                                          <tr key={item.id} className="hover:bg-gray-50 border-b last:border-0">
-                                              <td className="p-4 font-bold text-gray-800">{item.name}</td>
-                                              <td className="p-4 flex justify-center gap-2">
-                                                  <button 
-                                                      onClick={() => {
-                                                          setEditingItem(item);
-                                                          setItemFormName(item.name);
-                                                          setIsItemModalOpen(true);
-                                                      }}
-                                                      className="text-blue-600 hover:bg-blue-50 p-1.5 rounded"
-                                                      title="Edit"
-                                                  >
-                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                      </svg>
-                                                  </button>
-                                                  <button 
-                                                      onClick={() => handleDeleteItem(item.id)}
-                                                      className="text-red-600 hover:bg-red-50 p-1.5 rounded"
-                                                      title="Delete"
-                                                  >
-                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                                      </svg>
-                                                  </button>
-                                              </td>
-                                          </tr>
-                                      ))
-                                  ) : (
-                                      <tr><td colSpan={2} className="p-8 text-center text-gray-500">No items found. Add some items to get started.</td></tr>
-                                  )}
-                              </tbody>
-                          </table>
-                      </div>
-                  </div>
-              </main>
-          </div>
-      );
-  };
-
-  const renderBranchManagement = () => {
-      if (!activeCompany) return null;
-
-      // Identify HQ and Branches from the related network
-      const headOffice = relatedCompanies.find(c => !c.parentId);
-      const branches = relatedCompanies.filter(c => c.parentId);
-
-      return (
-        <div className="min-h-screen bg-gray-50">
-            {renderHeader()}
-            {renderSidebar()}
-            
-            <main className="max-w-7xl mx-auto p-4 md:p-8">
-                 {/* Top Navigation / Header */}
-                 <div className="flex items-center gap-4 mb-6">
-                    <button 
-                        onClick={() => setView('DASHBOARD')} 
-                        className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2"
-                    >
-                        <span>&larr;</span> Back to Dashboard
-                    </button>
-                    <h2 className="text-3xl font-bold text-gray-900">Branch Management</h2>
-                 </div>
-
-                 {/* HEAD OFFICE SECTION */}
-                 <div className="mb-10">
-                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Head Office</h3>
-                    {headOffice ? (
-                        <div className={`bg-white rounded shadow-sm border p-8 flex flex-col md:flex-row justify-between items-start md:items-center relative ${headOffice.id === activeCompany.id ? 'border-l-[6px] border-l-blue-900 border-t border-r border-b border-gray-200' : 'border-gray-200'}`}>
-                            <div>
-                                <h4 className="text-2xl font-bold text-gray-900 mb-2 uppercase tracking-tight">
-                                    {headOffice.settings.companyName} {headOffice.settings.location ? `(${headOffice.settings.location})` : ''}
-                                </h4>
-                                <p className="text-sm text-gray-500 uppercase font-medium mb-1">
-                                    {headOffice.settings.location || 'RIYADH'}, {headOffice.settings.addressLine1}
-                                </p>
-                                <div className="text-sm text-gray-500 flex items-center gap-2">
-                                    <span>Phone: {headOffice.settings.phone1}</span>
-                                </div>
-                            </div>
-                            <div className="mt-6 md:mt-0 flex gap-8">
-                                <div className="flex flex-col items-end">
-                                    <span className="text-gray-400 text-[10px] uppercase font-bold tracking-wider mb-1">Role</span>
-                                    <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold uppercase">HEADQUARTERS</span>
-                                </div>
-                                <div className="flex flex-col items-end">
-                                    <span className="text-gray-400 text-[10px] uppercase font-bold tracking-wider mb-1">Status</span>
-                                    {headOffice.id === activeCompany.id ? (
-                                        <span className="text-green-600 font-bold text-sm">Active (You)</span>
-                                    ) : (
-                                        <span className="text-gray-500 font-medium text-sm">Online</span>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="p-4 bg-yellow-50 text-yellow-800 rounded border border-yellow-200">
-                            Head Office information not available.
-                        </div>
-                    )}
-                 </div>
-
-                 {/* BRANCHES SECTION */}
-                 <div>
-                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Network Branches ({branches.length})</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-                        {branches.map(branch => {
-                            const isActive = branch.id === activeCompany.id;
-                            return (
-                                <div key={branch.id} className={`bg-white rounded shadow-sm border flex flex-col transition-shadow duration-200 ${isActive ? 'ring-2 ring-blue-500 border-transparent' : 'border-gray-200 hover:shadow-md'}`}>
-                                    <div className="p-6 flex-1">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <h4 className="text-lg font-bold text-gray-900 uppercase pr-2">
-                                                {branch.settings.companyName}
-                                            </h4>
-                                            {isActive ? (
-                                                <span className="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-1 rounded-full uppercase border border-green-200 whitespace-nowrap">Active</span>
-                                            ) : (
-                                                <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-1 rounded-full uppercase border border-gray-200 whitespace-nowrap">Online</span>
-                                            )}
-                                        </div>
-                                        <p className="text-sm text-gray-500 uppercase mb-4 font-medium">
-                                            {branch.settings.location || 'Unknown'}
-                                        </p>
-                                        <div className="flex items-center gap-2 text-gray-500 text-sm">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
-                                            </svg>
-                                            {branch.settings.phone1}
-                                        </div>
-                                    </div>
-                                    <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-between items-center rounded-b-lg">
-                                        <span className="text-xs text-gray-500">
-                                            User: <span className="font-medium text-gray-700">{branch.username}</span>
-                                            {isActive && <span className="ml-2 text-green-600 font-bold">(You)</span>}
-                                        </span>
-                                        <span className="bg-gray-200 text-gray-600 px-2 py-1 rounded text-[10px] font-bold uppercase border border-gray-300">
-                                            Branch Office
-                                        </span>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                        {branches.length === 0 && (
-                            <div className="col-span-2 p-8 text-center text-gray-400 bg-white rounded border border-dashed border-gray-300">
-                                No branches found.
-                            </div>
-                        )}
-                    </div>
-                 </div>
-            </main>
-        </div>
-      );
-  }
-
-  const renderCustomers = () => {
-    return (
-        <div className="min-h-screen bg-gray-50">
-            {renderHeader()}
-            {renderSidebar()}
-            {renderEditCustomerModal()}
-
-            <main className="max-w-7xl mx-auto p-4 md:p-6">
-                <div className="flex justify-between items-center mb-6">
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => setView('DASHBOARD')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                            &larr; Back to Dashboard
-                        </button>
-                        <h2 className="text-2xl font-bold text-gray-800">Customer Management</h2>
-                    </div>
-                    {/* Potential Export Button Here */}
-                </div>
-
-                {renderFilterBar()}
-
-                <div className="bg-white rounded shadow overflow-hidden">
-                    <div className="px-6 py-4 border-b flex justify-between items-center">
-                        <h3 className="font-bold text-gray-700">All Customers ({customers.length})</h3>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-50 text-gray-600">
-                                <tr>
-                                    <th className="p-4 border-b">Name</th>
-                                    <th className="p-4 border-b">Mobile</th>
-                                    <th className="p-4 border-b">ID Number</th>
-                                    <th className="p-4 border-b">VAT No</th>
-                                    <th className="p-4 border-b">Location</th>
-                                    <th className="p-4 border-b text-center">Total Shipments</th>
-                                    <th className="p-4 border-b text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {customers.length > 0 ? (
-                                    customers.map((customer) => (
-                                        <tr 
-                                            key={customer.key} 
-                                            className="hover:bg-blue-50 cursor-pointer transition-colors"
-                                            onClick={() => {
-                                                setSelectedCustomer(customer);
-                                                setView('CUSTOMER_DETAIL');
-                                            }}
-                                        >
-                                            <td className="p-4 border-b font-bold text-gray-800">{customer.name}</td>
-                                            <td className="p-4 border-b text-gray-600">{customer.mobile}</td>
-                                            <td className="p-4 border-b font-mono text-gray-500">{customer.idNo || '-'}</td>
-                                            <td className="p-4 border-b text-gray-500">{customer.vatNo || '-'}</td>
-                                            <td className="p-4 border-b text-xs text-blue-800 font-semibold bg-blue-50 rounded w-max px-2 py-1 mx-4 block">
-                                                {customer.location}
-                                            </td>
-                                            <td className="p-4 border-b text-center">
-                                                <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded font-bold">{customer.totalShipments}</span>
-                                            </td>
-                                            <td className="p-4 border-b text-center">
-                                                <button 
-                                                    onClick={(e) => handleEditCustomerClick(e, customer)}
-                                                    className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-100 rounded transition-colors"
-                                                    title="Edit Customer Details"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                    </svg>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan={7} className="p-8 text-center text-gray-500">No customers found.</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </main>
-        </div>
-    );
-  };
+        </main>
+    </div>
+  );
 
   const renderCustomerDetail = () => {
     if (!selectedCustomer) return null;
-
-    // Filter invoices for this specific customer
-    const customerInvoices = allNetworkInvoices
-        .filter(inv => inv._companyId === selectedCustomer.companyId)
-        .filter(inv => {
-             const shipper = inv.shipper;
-             const identityKey = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
-             const key = `${identityKey}_${inv._companyId}`;
-             return key === selectedCustomer.key;
-        })
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    const totalSpent = customerInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
+    const customerInvoices = allNetworkInvoices.filter(inv => {
+        const shipper = inv.shipper;
+        const identityKey = shipper.idNo && shipper.idNo.length > 3 ? `ID:${shipper.idNo}` : `NM:${shipper.name.trim().toLowerCase()}|${shipper.tel}`;
+        const key = `${identityKey}_${inv._companyId}`;
+        return key === selectedCustomer.key;
+    });
 
     return (
         <div className="min-h-screen bg-gray-50">
             {renderHeader()}
             {renderSidebar()}
-            {renderHistoryModal()}
-
-            <main className="max-w-7xl mx-auto p-4 md:p-6">
+            <main className="max-w-6xl mx-auto p-6">
                 <div className="flex items-center gap-4 mb-6">
-                    <button onClick={() => setView('CUSTOMERS')} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                        &larr; Back to Customers
-                    </button>
-                    <h2 className="text-2xl font-bold text-gray-800">Customer Profile</h2>
+                    <button onClick={() => setView('CUSTOMERS')} className="text-gray-500 hover:text-gray-700">&larr; Back</button>
+                    <h2 className="text-2xl font-bold text-gray-800">{selectedCustomer.name}</h2>
+                    <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded font-bold">{selectedCustomer.location}</span>
+                </div>
+                
+                <div className="bg-white p-6 rounded shadow mb-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <span className="text-xs text-gray-500 uppercase font-bold">Mobile</span>
+                        <div className="text-lg font-medium">{selectedCustomer.mobile}</div>
+                    </div>
+                    <div>
+                        <span className="text-xs text-gray-500 uppercase font-bold">ID Number</span>
+                        <div className="text-lg font-mono">{selectedCustomer.idNo}</div>
+                    </div>
+                     <div>
+                        <span className="text-xs text-gray-500 uppercase font-bold">Total Shipments</span>
+                        <div className="text-lg font-bold text-blue-900">{selectedCustomer.totalShipments}</div>
+                    </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    {/* Profile Card */}
-                    <div className="bg-white p-6 rounded shadow-sm border-t-4 border-blue-900 col-span-1">
-                        <div className="flex flex-col items-center text-center mb-6">
-                            <div className="h-20 w-20 bg-blue-100 rounded-full flex items-center justify-center text-blue-900 text-3xl font-bold mb-3">
-                                {selectedCustomer.name.charAt(0).toUpperCase()}
-                            </div>
-                            <h3 className="text-xl font-bold text-gray-900">{selectedCustomer.name}</h3>
-                            <p className="text-sm text-gray-500">{selectedCustomer.location}</p>
-                        </div>
-                        <div className="space-y-3 text-sm">
-                            <div className="flex justify-between border-b pb-2">
-                                <span className="text-gray-500">Mobile</span>
-                                <span className="font-medium">{selectedCustomer.mobile}</span>
-                            </div>
-                            <div className="flex justify-between border-b pb-2">
-                                <span className="text-gray-500">ID Number</span>
-                                <span className="font-mono">{selectedCustomer.idNo || '-'}</span>
-                            </div>
-                             <div className="flex justify-between border-b pb-2">
-                                <span className="text-gray-500">VAT Number</span>
-                                <span className="font-mono">{selectedCustomer.vatNo || '-'}</span>
-                            </div>
-                            <div className="flex justify-between pt-2">
-                                <span className="text-gray-500">Total Spent</span>
-                                <span className="font-bold text-green-600">SAR {totalSpent.toFixed(2)}</span>
-                            </div>
-                        </div>
+                <div className="bg-white rounded shadow overflow-hidden">
+                    <div className="px-6 py-4 border-b">
+                        <h3 className="font-bold text-gray-700">Shipment History</h3>
                     </div>
-
-                    {/* Invoices List */}
-                    <div className="bg-white rounded shadow-sm col-span-1 md:col-span-2 overflow-hidden">
-                        <div className="px-6 py-4 border-b bg-gray-50">
-                            <h3 className="font-bold text-gray-700">Shipment History</h3>
-                        </div>
-                        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-gray-100 text-gray-600 sticky top-0">
-                                    <tr>
-                                        <th className="p-3 border-b">Invoice #</th>
-                                        <th className="p-3 border-b">Date</th>
-                                        <th className="p-3 border-b">Status</th>
-                                        <th className="p-3 border-b">Destination</th>
-                                        <th className="p-3 border-b text-right">Amount</th>
-                                        <th className="p-3 border-b"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {customerInvoices.map((inv, idx) => (
-                                        <tr key={idx} className="hover:bg-gray-50 border-b last:border-0">
-                                            <td className="p-3 font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
-                                            <td className="p-3 text-gray-600">{inv.date}</td>
-                                            <td className="p-3">
-                                                 <button 
-                                                      onClick={() => setViewingHistoryInvoice(inv)}
-                                                      className={`px-2 py-1 rounded text-xs font-bold hover:opacity-80 transition shadow-sm ${
-                                                          inv.status === 'Delivered' ? 'bg-green-100 text-green-800' :
-                                                          inv.status === 'Received' ? 'bg-blue-100 text-blue-800' :
-                                                          'bg-gray-100 text-gray-800'
-                                                      }`}
-                                                  >
-                                                      {inv.status || 'Received'}
-                                                  </button>
-                                            </td>
-                                            <td className="p-3 text-gray-600 max-w-[150px] truncate" title={inv.consignee.address}>
-                                                {inv.consignee.post || inv.consignee.address}
-                                            </td>
-                                            <td className="p-3 text-right font-bold text-gray-800">
-                                                {inv.financials.netTotal.toFixed(2)}
-                                            </td>
-                                            <td className="p-3 text-right">
-                                                 <button 
-                                                      onClick={() => {
-                                                        setCurrentInvoice(inv);
-                                                        setView('PREVIEW_INVOICE');
-                                                      }} 
-                                                      className="text-gray-400 hover:text-blue-600"
-                                                      title="View Invoice"
-                                                   >
-                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                                                        <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                                                      </svg>
-                                                 </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-50 text-gray-600">
+                            <tr>
+                                <th className="p-4">Date</th>
+                                <th className="p-4">Invoice #</th>
+                                <th className="p-4">Consignee</th>
+                                <th className="p-4">Amount</th>
+                                <th className="p-4">Status</th>
+                                <th className="p-4 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {customerInvoices.map((inv, idx) => (
+                                <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
+                                    <td className="p-4">{inv.date}</td>
+                                    <td className="p-4 font-mono font-bold text-blue-800">{inv.invoiceNo}</td>
+                                    <td className="p-4">{inv.consignee.name}</td>
+                                    <td className="p-4 font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                                    <td className="p-4"><span className="bg-gray-100 px-2 py-0.5 rounded text-xs">{inv.status}</span></td>
+                                    <td className="p-4 text-right">
+                                        <button onClick={() => { setCurrentInvoice(inv); setView('PREVIEW_INVOICE'); }} className="text-blue-600 font-bold hover:underline">View</button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </main>
         </div>
     );
   };
+
+  const renderFinanceView = () => (
+    <div className="min-h-screen bg-gray-50">
+        {renderHeader()}
+        {renderSidebar()}
+        <main className="max-w-7xl mx-auto p-6">
+            <div className="flex justify-between items-center mb-6">
+                 <h2 className="text-2xl font-bold text-gray-800">Financial Accounts</h2>
+                 <button onClick={() => setIsAddTransactionOpen(true)} className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 font-bold">
+                     + Add Expense / Revenue
+                 </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                 {/* Summary Cards */}
+                 <div className="bg-white p-6 rounded shadow border-l-4 border-green-500">
+                     <span className="text-gray-500 text-sm font-bold uppercase">Total Revenue</span>
+                     <div className="text-2xl font-bold text-green-700 mt-1">SAR {stats.totalRevenue.toFixed(2)}</div>
+                 </div>
+                 <div className="bg-white p-6 rounded shadow border-l-4 border-red-500">
+                     <span className="text-gray-500 text-sm font-bold uppercase">Total Expenses</span>
+                     <div className="text-2xl font-bold text-red-700 mt-1">
+                         SAR {(activeCompany?.financialTransactions.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + t.amount, 0) || 0).toFixed(2)}
+                     </div>
+                 </div>
+                 <div className="bg-white p-6 rounded shadow border-l-4 border-blue-500">
+                     <span className="text-gray-500 text-sm font-bold uppercase">Net Profit</span>
+                     <div className="text-2xl font-bold text-blue-900 mt-1">
+                          SAR {(stats.totalRevenue - (activeCompany?.financialTransactions.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + t.amount, 0) || 0)).toFixed(2)}
+                     </div>
+                 </div>
+            </div>
+
+            <div className="bg-white rounded shadow overflow-hidden">
+                <div className="px-6 py-4 border-b flex justify-between items-center">
+                    <h3 className="font-bold text-gray-700">Recent Transactions</h3>
+                    <div className="text-sm text-gray-500">
+                        Cash: <span className="font-bold text-black">{stats.cashInHand.toFixed(2)}</span> | Bank: <span className="font-bold text-black">{stats.bankBalance.toFixed(2)}</span>
+                    </div>
+                </div>
+                <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-100 text-gray-600 font-bold">
+                        <tr>
+                            <th className="p-4">Date</th>
+                            <th className="p-4">Description</th>
+                            <th className="p-4">Account</th>
+                            <th className="p-4">Mode</th>
+                            <th className="p-4 text-right">Amount (SAR)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {(activeCompany?.financialTransactions || []).slice(0, 50).map((tx) => (
+                            <tr key={tx.id} className="border-b hover:bg-gray-50">
+                                <td className="p-4">{tx.date}</td>
+                                <td className="p-4 font-medium">{tx.description}</td>
+                                <td className="p-4 text-gray-500 text-xs uppercase">
+                                    {(activeCompany?.financialAccounts.find(a => a.id === tx.accountId)?.name) || tx.accountId}
+                                </td>
+                                <td className="p-4"><span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs">{tx.paymentMode || 'CASH'}</span></td>
+                                <td className={`p-4 text-right font-bold ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
+                                    {tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+        {isAddTransactionOpen && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white p-6 rounded shadow-lg w-96">
+                    <h3 className="font-bold text-lg mb-4">Add Transaction</h3>
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Type</label>
+                            <div className="flex gap-2 mt-1">
+                                <button onClick={() => setNewTransaction({...newTransaction, type: 'INCOME'})} className={`flex-1 py-1 rounded border ${newTransaction.type === 'INCOME' ? 'bg-green-100 border-green-500 text-green-700 font-bold' : 'bg-gray-50'}`}>Income</button>
+                                <button onClick={() => setNewTransaction({...newTransaction, type: 'EXPENSE'})} className={`flex-1 py-1 rounded border ${newTransaction.type === 'EXPENSE' ? 'bg-red-100 border-red-500 text-red-700 font-bold' : 'bg-gray-50'}`}>Expense</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Date</label>
+                            <input type="date" className="w-full border p-2 rounded" value={newTransaction.date} onChange={e => setNewTransaction({...newTransaction, date: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Account</label>
+                            <select className="w-full border p-2 rounded" value={newTransaction.accountId} onChange={e => setNewTransaction({...newTransaction, accountId: e.target.value})}>
+                                <option value="">Select Account</option>
+                                {activeCompany?.financialAccounts.filter(a => newTransaction.type === 'INCOME' ? a.type === 'REVENUE' : a.type === 'EXPENSE').map(a => (
+                                    <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Amount</label>
+                            <input type="number" className="w-full border p-2 rounded" value={newTransaction.amount} onChange={e => setNewTransaction({...newTransaction, amount: parseFloat(e.target.value)})} />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Description</label>
+                            <input type="text" className="w-full border p-2 rounded" value={newTransaction.description} onChange={e => setNewTransaction({...newTransaction, description: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Payment Mode</label>
+                             <select className="w-full border p-2 rounded" value={newTransaction.paymentMode} onChange={e => setNewTransaction({...newTransaction, paymentMode: e.target.value as any})}>
+                                <option value="CASH">Cash</option>
+                                <option value="BANK">Bank Transfer / Card</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-6">
+                        <button onClick={() => setIsAddTransactionOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+                        <button onClick={handleSaveTransaction} className="px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700">Save Transaction</button>
+                    </div>
+                </div>
+            </div>
+        )}
+    </div>
+  );
+
+  const renderBranchManagement = () => (
+    <div className="min-h-screen bg-gray-50">
+        {renderHeader()}
+        {renderSidebar()}
+        <main className="max-w-4xl mx-auto p-6">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Branch Settings</h2>
+            <div className="bg-white p-6 rounded shadow border-t-4 border-blue-900">
+                 <div className="space-y-6">
+                            {/* Section 1: Authentication */}
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Login Details</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Username</label>
+                                        <input className="w-full border p-2 rounded bg-gray-100 cursor-not-allowed" type="text" value={newCompany.username || ''} readOnly />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Password</label>
+                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.password || ''} onChange={e => setNewCompany({...newCompany, password: e.target.value})} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 3: Company Details */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (English)</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.companyName || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, companyName: e.target.value}})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (Arabic)</label>
+                                    <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.companyArabicName || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, companyArabicName: e.target.value}})} />
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Location Name (e.g. Riyadh Branch)</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.location || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, location: e.target.value}})} placeholder="City or Branch Name" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Logo URL</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.logoUrl || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, logoUrl: e.target.value}})} placeholder="https://..." />
+                                </div>
+
+                                <div className="col-span-2">
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Address Line 1</label>
+                                    <input className="w-full border p-2 rounded mb-2" type="text" value={newCompany.settings?.addressLine1 || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1: e.target.value}})} placeholder="English Address" />
+                                    <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.addressLine1Arabic || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1Arabic: e.target.value}})} placeholder="العنوان بالعربي" />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Phone 1</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone1 || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, phone1: e.target.value}})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Phone 2</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone2 || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, phone2: e.target.value}})} />
+                                </div>
+                            </div>
+
+                            {/* Section 4: Invoice Configuration */}
+                            <div className="bg-blue-50 p-4 rounded border border-blue-100">
+                                <h3 className="text-sm font-bold text-blue-800 uppercase mb-3">Invoice Configuration</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Prefix (e.g. RUH-)</label>
+                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.invoicePrefix || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, invoicePrefix: e.target.value}})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Start Number</label>
+                                        <input className="w-full border p-2 rounded" type="number" value={newCompany.settings?.invoiceStartNumber || 1000} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, invoiceStartNumber: parseInt(e.target.value)}})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Brand Color</label>
+                                        <input className="w-full h-10 border rounded cursor-pointer" type="color" value={newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, brandColor: e.target.value}})} />
+                                    </div>
+                                </div>
+                                <div className="mt-4 flex items-center gap-4">
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">VAT / Tax Number</label>
+                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.vatnoc || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, vatnoc: e.target.value}})} />
+                                    </div>
+                                    <div className="flex items-center pt-5">
+                                        <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 border rounded shadow-sm">
+                                            <input type="checkbox" checked={newCompany.settings?.isVatEnabled || false} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, isVatEnabled: e.target.checked}})} className="w-4 h-4 text-blue-600" />
+                                            <span className="text-sm font-bold text-gray-700">Enable VAT (15%)</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 5: Shipment Types */}
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Shipment Types</h3>
+                                <div className="flex gap-2 mb-3">
+                                    <input className="flex-1 border p-2 rounded text-sm" placeholder="Type Name (e.g. AIR CARGO)" value={tempShipmentName} onChange={e => setTempShipmentName(e.target.value)} />
+                                    <input className="w-24 border p-2 rounded text-sm" type="number" placeholder="Rate" value={tempShipmentValue} onChange={e => setTempShipmentValue(e.target.value)} />
+                                    <button onClick={addShipmentType} className="bg-green-600 text-white px-4 rounded font-bold hover:bg-green-700">+</button>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {(newCompany.settings?.shipmentTypes || []).map((type, idx) => (
+                                        <span key={idx} className="bg-white border border-gray-300 px-3 py-1 rounded-full text-sm flex items-center gap-2 shadow-sm">
+                                            <span className="font-bold text-gray-700">{type.name}</span>
+                                            <span className="text-blue-600 font-mono">{type.value}</span>
+                                            <button onClick={() => removeShipmentType(idx)} className="text-red-500 hover:text-red-700 font-bold ml-1">&times;</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <button onClick={handleSaveCompany} className="w-full bg-blue-800 text-white font-bold py-3 rounded hover:bg-blue-700 transition shadow-lg">
+                                Update Settings
+                            </button>
+                        </div>
+            </div>
+        </main>
+    </div>
+  );
+
+  if (isLoading) {
+      return (
+          <div className="flex items-center justify-center min-h-screen bg-gray-100 flex-col gap-4">
+              <div className="w-12 h-12 border-4 border-blue-900 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-gray-600 font-medium">Connecting to System...</p>
+          </div>
+      );
+  }
 
   if (view === 'ITEMS' && activeCompany) {
       return renderItems();
@@ -1918,7 +1626,6 @@ const App: React.FC = () => {
   }
 
   if (view === 'DASHBOARD' && activeCompany) {
-    // ... (Existing Dashboard render code) ...
     return (
       <div className="min-h-screen bg-gray-50">
         {renderHeader()}
@@ -2124,7 +1831,7 @@ const App: React.FC = () => {
           </main>
         </div>
       );
-    }
+  }
 
   if (view === 'CREATE_INVOICE' && currentInvoice) {
     return (
@@ -2143,20 +1850,13 @@ const App: React.FC = () => {
             history={allNetworkInvoices}
             isVatEnabled={activeCompany?.settings.isVatEnabled || false} 
             savedItems={activeCompany?.items || []}
+            savedCustomers={[]}
           />
       </div>
     );
   }
 
   if (view === 'PREVIEW_INVOICE' && currentInvoice && activeCompany) {
-    // Note: InvoicePreview usually needs settings of the invoice's creator
-    // If viewing a branch invoice from HQ, we should technically pass that branch's settings.
-    // For now, defaulting to activeCompany settings (viewing user), or we could try to find the company 
-    // from the invoiceNo logic if we needed exact letterhead of the branch.
-    // Given the prompt didn't specify strict letterhead switching for preview, we keep activeCompany.
-    // However, if we wanted to be precise, we'd find the owner company of currentInvoice.
-    
-    // Let's try to find the owner for the preview to be accurate
     const ownerCompany = companies.find(c => c.invoices.some(inv => inv.invoiceNo === currentInvoice.invoiceNo)) || activeCompany;
 
     return (
@@ -2216,6 +1916,7 @@ const App: React.FC = () => {
     );
   }
 
+  // Settings View (Admin) Return
   if (view === 'SETTINGS' && isSuperAdmin) {
       return (
         <div className="min-h-screen bg-gray-100 flex flex-col">
