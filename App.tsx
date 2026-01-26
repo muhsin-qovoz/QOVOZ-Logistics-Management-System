@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
-import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction, ItemMaster, ShipmentStatusSetting } from './types';
+import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction, ItemMaster, ShipmentStatusSetting, InvoiceItem } from './types';
 import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
 import { fetchCompanies, persistAllCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR, DEFAULT_ACCOUNTS, DEFAULT_ITEMS, DEFAULT_SHIPMENT_STATUS_SETTINGS } from './services/dataService';
@@ -983,6 +982,26 @@ const App: React.FC = () => {
 
   const handleInvoiceSubmit = (data: InvoiceData) => {
     let foundAndUpdated = false;
+    
+    // Helper to generate new items
+    const getUpdatedItems = (existingItems: ItemMaster[] | undefined, cargoItems: InvoiceItem[]) => {
+        const currentItems = existingItems || [];
+        const existingNames = new Set(currentItems.map(i => i.name.toUpperCase()));
+        const newItemsToAdd: ItemMaster[] = [];
+
+        cargoItems.forEach(item => {
+            const name = item.description.trim().toUpperCase();
+            // Basic validation: ignore if too short or empty
+            if (name && name.length > 0 && !existingNames.has(name)) {
+                newItemsToAdd.push({
+                    id: `itm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    name: name
+                });
+                existingNames.add(name);
+            }
+        });
+        return [...currentItems, ...newItemsToAdd];
+    };
 
     setCompanies(prev => {
       // 1. Try to find and update existing invoice in ANY company
@@ -1031,7 +1050,12 @@ const App: React.FC = () => {
                 });
             }
 
-            return { ...c, invoices: updatedInvoices, financialTransactions: updatedTransactions };
+            return { 
+                ...c, 
+                invoices: updatedInvoices, 
+                financialTransactions: updatedTransactions,
+                items: getUpdatedItems(c.items, data.cargoItems) 
+            };
         }
         return c;
       });
@@ -1092,7 +1116,8 @@ const App: React.FC = () => {
                   return { 
                       ...c, 
                       invoices: [data, ...c.invoices],
-                      financialTransactions: [...newTransactions, ...(c.financialTransactions || [])]
+                      financialTransactions: [...newTransactions, ...(c.financialTransactions || [])],
+                      items: getUpdatedItems(c.items, data.cargoItems) 
                   };
               }
               return c;
