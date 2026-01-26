@@ -131,6 +131,9 @@ const App: React.FC = () => {
   const [editingItem, setEditingItem] = useState<ItemMaster | null>(null);
   const [itemFormName, setItemFormName] = useState('');
 
+  // Branch Management State
+  const [branchManagementMode, setBranchManagementMode] = useState<'LIST' | 'EDIT'>('LIST');
+
   // Create/Edit Company Form State
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [newCompany, setNewCompany] = useState<Omit<Partial<Company>, 'settings'> & { settings: Partial<AppSettings> }>({
@@ -164,6 +167,45 @@ const App: React.FC = () => {
 
   // DnD State for Shipment Statuses
   const [draggedStatusIndex, setDraggedStatusIndex] = useState<number | null>(null);
+
+  // --- Routing / History Logic ---
+
+  // Helper to update view and push to history
+  const updateView = (newView: ViewState, addToHistory = true) => {
+      setView(newView);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (addToHistory) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('view', newView);
+          window.history.pushState({ view: newView }, '', url);
+      }
+  };
+
+  // Listen for Browser Back/Forward buttons
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+        if (event.state && event.state.view) {
+            // Restore view from history state
+            setView(event.state.view);
+        } else {
+            // Fallback: Check URL or default to Dashboard/Login based on auth
+            const params = new URLSearchParams(window.location.search);
+            const viewParam = params.get('view') as ViewState | null;
+            
+            if (viewParam) {
+                setView(viewParam);
+            } else if (activeCompanyId) {
+                setView('DASHBOARD');
+            } else {
+                setView('LOGIN');
+            }
+        }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [activeCompanyId]);
+
 
   // --- Helpers ---
 
@@ -608,7 +650,7 @@ const App: React.FC = () => {
     if (username === 'qovoz' && password === '123') {
       setIsSuperAdmin(true);
       setActiveCompanyId(null);
-      setView('SETTINGS'); // Admin goes straight to company creation
+      updateView('SETTINGS'); // Admin goes straight to company creation
       return;
     }
 
@@ -637,7 +679,7 @@ const App: React.FC = () => {
         setDashboardLocationFilter('ALL'); 
       }
 
-      setView('DASHBOARD');
+      updateView('DASHBOARD');
     } else {
       setLoginError('Invalid Username/Password');
     }
@@ -646,7 +688,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setActiveCompanyId(null);
     setIsSuperAdmin(false);
-    setView('LOGIN');
+    updateView('LOGIN');
     setUsername('');
     setPassword('');
     setLoginError('');
@@ -654,24 +696,19 @@ const App: React.FC = () => {
   };
 
   const handleNavClick = (newView: ViewState) => {
-      setView(newView);
+      updateView(newView);
       setIsMenuOpen(false);
       setSearchQuery('');
       setSelectedCustomer(null);
+      
+      // Reset modes
+      setBranchManagementMode('LIST');
+
       if (newView === 'CREATE_INVOICE') {
           handleCreateInvoice();
       }
       if (newView === 'BRANCH_MANAGEMENT' && activeCompany) {
-         setEditingCompanyId(activeCompany.id);
-         setNewCompany({
-             username: activeCompany.username,
-             password: activeCompany.password,
-             expiryDate: activeCompany.expiryDate,
-             parentId: activeCompany.parentId,
-             settings: { ...activeCompany.settings }
-         });
-         setIsBranch(!!activeCompany.parentId);
-         setSelectedParentId(activeCompany.parentId || '');
+         // Default to list view logic, no need to pre-fill form
       }
   };
   
@@ -844,6 +881,10 @@ const App: React.FC = () => {
     setSelectedParentId('');
     setTempShipmentName('');
     setTempShipmentValue('');
+    
+    if (branchManagementMode === 'EDIT') {
+        setBranchManagementMode('LIST');
+    }
   };
 
   const handleEditCompany = (company: Company) => {
@@ -885,7 +926,13 @@ const App: React.FC = () => {
     setTempShipmentValue('');
     setIsBranch(false);
     setSelectedParentId('');
+    
+    if (branchManagementMode === 'EDIT') {
+        setBranchManagementMode('LIST');
+    }
   };
+
+  // ... (Create Invoice, Edit Invoice, Invoice Submit, Customer Logic ...)
 
   const handleCreateInvoice = () => {
     if (!activeCompany) return;
@@ -926,12 +973,12 @@ const App: React.FC = () => {
     };
 
     setCurrentInvoice(template);
-    setView('CREATE_INVOICE');
+    updateView('CREATE_INVOICE');
   };
 
   const handleEditInvoice = (invoice: InvoiceData) => {
     setCurrentInvoice(invoice);
-    setView('CREATE_INVOICE');
+    updateView('CREATE_INVOICE');
   };
 
   const handleInvoiceSubmit = (data: InvoiceData) => {
@@ -1056,10 +1103,9 @@ const App: React.FC = () => {
     });
     
     setCurrentInvoice(data);
-    setView('PREVIEW_INVOICE');
+    updateView('PREVIEW_INVOICE');
   };
   
-  // ... rest of customer logic ...
   // Customer Edit Logic
   const handleEditCustomerClick = (e: React.MouseEvent, customer: AggregatedCustomer) => {
       e.stopPropagation(); // Prevent row click
@@ -1179,6 +1225,11 @@ const App: React.FC = () => {
       }));
   };
 
+  const handleBranchEditClick = (company: Company) => {
+      handleEditCompany(company);
+      setBranchManagementMode('EDIT');
+  };
+
   // --- Render Functions ---
 
   const renderHistoryModal = () => (
@@ -1283,7 +1334,7 @@ const App: React.FC = () => {
                     </thead>
                     <tbody>
                         {customers.map((c) => (
-                            <tr key={c.key} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => { setSelectedCustomer(c); setView('CUSTOMER_DETAIL'); }}>
+                            <tr key={c.key} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => { setSelectedCustomer(c); updateView('CUSTOMER_DETAIL'); }}>
                                 <td className="p-4 font-bold text-blue-900">{c.name}</td>
                                 <td className="p-4">{c.mobile}</td>
                                 <td className="p-4 font-mono">{c.idNo}</td>
@@ -1348,7 +1399,7 @@ const App: React.FC = () => {
             {renderSidebar()}
             <main className="max-w-6xl mx-auto p-6">
                 <div className="flex items-center gap-4 mb-6">
-                    <button onClick={() => setView('CUSTOMERS')} className="text-gray-500 hover:text-gray-700">&larr; Back</button>
+                    <button onClick={() => updateView('CUSTOMERS')} className="text-gray-500 hover:text-gray-700">&larr; Back</button>
                     <h2 className="text-2xl font-bold text-gray-800">{selectedCustomer.name}</h2>
                     <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded font-bold">{selectedCustomer.location}</span>
                 </div>
@@ -1392,7 +1443,7 @@ const App: React.FC = () => {
                                     <td className="p-4 font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
                                     <td className="p-4"><span className="bg-gray-100 px-2 py-0.5 rounded text-xs">{inv.status}</span></td>
                                     <td className="p-4 text-right">
-                                        <button onClick={() => { setCurrentInvoice(inv); setView('PREVIEW_INVOICE'); }} className="text-blue-600 font-bold hover:underline">View</button>
+                                        <button onClick={() => { setCurrentInvoice(inv); updateView('PREVIEW_INVOICE'); }} className="text-blue-600 font-bold hover:underline">View</button>
                                     </td>
                                 </tr>
                             ))}
@@ -1523,13 +1574,16 @@ const App: React.FC = () => {
     </div>
   );
 
-  const renderBranchManagement = () => (
-    <div className="min-h-screen bg-gray-50">
-        {renderHeader()}
-        {renderSidebar()}
-        <main className="max-w-4xl mx-auto p-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Branch Settings</h2>
-            <div className="bg-white p-6 rounded shadow border-t-4 border-blue-900">
+  const renderCompanyForm = () => {
+      return (
+            <div className="bg-white p-6 rounded shadow border-t-4 border-blue-900 animate-fade-in">
+                 <div className="flex justify-between items-center mb-6 border-b pb-2">
+                     <h3 className="text-xl font-bold text-gray-800">
+                         {editingCompanyId ? `Edit Branch: ${newCompany.settings.companyName}` : 'Create New Branch'}
+                     </h3>
+                     <button onClick={handleCancelEdit} className="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded font-bold">Cancel</button>
+                 </div>
+
                  <div className="space-y-6">
                             {/* Section 1: Authentication */}
                             <div className="bg-gray-50 p-4 rounded border border-gray-200">
@@ -1633,13 +1687,110 @@ const App: React.FC = () => {
                             </div>
 
                             <button onClick={handleSaveCompany} className="w-full bg-blue-800 text-white font-bold py-3 rounded hover:bg-blue-700 transition shadow-lg">
-                                Update Settings
+                                Save Changes
                             </button>
                         </div>
             </div>
+      )
+  };
+
+  const renderBranchManagement = () => {
+    // Determine HQ and Branches
+    const hq = relatedCompanies.find(c => !c.parentId);
+    const branches = relatedCompanies.filter(c => c.parentId === hq?.id);
+    const isHQAdmin = activeCompany && !activeCompany.parentId;
+
+    return (
+    <div className="min-h-screen bg-gray-50">
+        {renderHeader()}
+        {renderSidebar()}
+        <main className="max-w-7xl mx-auto p-6">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Branch Management</h2>
+            
+            {branchManagementMode === 'EDIT' ? (
+                renderCompanyForm()
+            ) : (
+                <div className="space-y-8 animate-fade-in">
+                    {/* Head Office Section */}
+                    {hq && (
+                        <div>
+                            <h3 className="text-sm font-bold text-gray-500 uppercase mb-4 tracking-wide">HEAD OFFICE</h3>
+                            <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-6 flex flex-col md:flex-row justify-between items-start md:items-center relative group">
+                                <div>
+                                    <h4 className="text-xl font-black text-gray-900 uppercase">{hq.settings.companyName} ({hq.settings.location || 'HQ'})</h4>
+                                    <p className="text-sm text-gray-500 mt-1 uppercase font-semibold">{hq.settings.addressLine1} {hq.settings.addressLine2 ? `, ${hq.settings.addressLine2}` : ''}</p>
+                                    <p className="text-sm text-gray-500 mt-1">Phone: {hq.settings.phone1}</p>
+                                </div>
+                                <div className="mt-4 md:mt-0 flex flex-col items-end gap-2">
+                                    <div className="flex gap-2">
+                                         <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">HEADQUARTERS</span>
+                                         <span className="text-green-600 font-bold text-sm flex items-center gap-1">
+                                             {activeCompany?.id === hq.id ? 'Active (You)' : 'Active'}
+                                         </span>
+                                    </div>
+                                    <p className="text-xs text-gray-400">User: {hq.username}</p>
+                                </div>
+                                
+                                <button 
+                                    onClick={() => handleBranchEditClick(hq)}
+                                    className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-100 hover:bg-gray-200 p-2 rounded text-gray-600"
+                                    title="Edit Settings"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Network Branches Section */}
+                    <div>
+                         <h3 className="text-sm font-bold text-gray-500 uppercase mb-4 tracking-wide">NETWORK BRANCHES ({branches.length})</h3>
+                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                             {branches.map(branch => (
+                                 <div key={branch.id} className="bg-white rounded-lg shadow-sm border border-gray-100 p-6 flex flex-col h-full relative group hover:shadow-md transition">
+                                     <div className="flex-1">
+                                         <h4 className="text-lg font-bold text-gray-900 mb-1">{branch.settings.companyName} ({branch.settings.location})</h4>
+                                         <p className="text-sm text-gray-500 font-medium uppercase mb-2">{branch.settings.location}</p>
+                                         <p className="text-sm text-gray-500 flex items-center gap-2">
+                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                             </svg>
+                                             {branch.settings.phone1}
+                                         </p>
+                                     </div>
+                                     
+                                     <div className="mt-6 border-t pt-4 flex justify-between items-center">
+                                         <span className="text-xs text-gray-500">User: <span className="font-mono font-medium">{branch.username}</span></span>
+                                         <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-bold border border-gray-200">Branch Office</span>
+                                     </div>
+
+                                     {(isHQAdmin || activeCompany?.id === branch.id) && (
+                                         <button 
+                                            onClick={() => handleBranchEditClick(branch)}
+                                            className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-100 hover:bg-gray-200 p-2 rounded text-gray-600"
+                                            title="Edit Settings"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                            </svg>
+                                        </button>
+                                     )}
+                                 </div>
+                             ))}
+                             {branches.length === 0 && (
+                                 <div className="col-span-full py-8 text-center bg-white rounded border border-dashed text-gray-400 text-sm">
+                                     No branches found in this network.
+                                 </div>
+                             )}
+                         </div>
+                    </div>
+                </div>
+            )}
         </main>
     </div>
-  );
+  )};
 
   if (isLoading) {
       return (
@@ -1762,7 +1913,7 @@ const App: React.FC = () => {
               </table>
               {filteredInvoices.length > 0 && (
                   <div className="p-3 bg-gray-50 text-center border-t">
-                      <button onClick={() => setView('INVOICES')} className="text-blue-600 text-xs font-bold hover:underline">View All Invoices &rarr;</button>
+                      <button onClick={() => updateView('INVOICES')} className="text-blue-600 text-xs font-bold hover:underline">View All Invoices &rarr;</button>
                   </div>
               )}
           </div>
@@ -1857,7 +2008,7 @@ const App: React.FC = () => {
                                <button 
                                   onClick={() => {
                                     setCurrentInvoice(inv);
-                                    setView('PREVIEW_INVOICE');
+                                    updateView('PREVIEW_INVOICE');
                                   }} 
                                   className="text-gray-600 hover:text-gray-800 p-1 rounded hover:bg-gray-100 transition"
                                   title="Print / View"
@@ -1891,14 +2042,14 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-gray-100 pb-12">
           <nav className="bg-blue-900 text-gray-200 p-4 shadow-lg mb-4">
              <div className="max-w-6xl mx-auto flex items-center gap-4">
-                <button onClick={() => setView('DASHBOARD')} className="hover:text-white">&larr; Back</button>
+                <button onClick={() => updateView('DASHBOARD')} className="hover:text-white">&larr; Back</button>
                 <h1 className="text-lg font-bold">Create Invoice</h1>
              </div>
           </nav>
           <InvoiceForm 
             initialData={currentInvoice}
             onSubmit={handleInvoiceSubmit}
-            onCancel={() => setView('DASHBOARD')}
+            onCancel={() => updateView('DASHBOARD')}
             shipmentTypes={activeCompany?.settings.shipmentTypes || []}
             history={allNetworkInvoices}
             isVatEnabled={activeCompany?.settings.isVatEnabled || false} 
@@ -1916,7 +2067,7 @@ const App: React.FC = () => {
       <InvoicePreview 
         data={currentInvoice} 
         settings={ownerCompany.settings}
-        onBack={() => setView('DASHBOARD')} 
+        onBack={() => updateView('DASHBOARD')} 
       />
     );
   }
@@ -1957,307 +2108,14 @@ const App: React.FC = () => {
                 placeholder="Enter your password"
               />
             </div>
-            <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3 rounded hover:bg-blue-800 transition shadow-lg mt-2">
-              Login to Dashboard
+            
+            <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3 rounded hover:bg-blue-800 transition shadow-lg uppercase tracking-wider">
+                Login
             </button>
           </form>
-          <div className="mt-6 text-center">
-              <p className="text-xs text-gray-400">© 2024 Qovoz Systems. All rights reserved.</p>
-          </div>
         </div>
       </div>
     );
-  }
-
-  // Settings View (Admin) Return
-  if (view === 'SETTINGS' && isSuperAdmin) {
-      const statusSettings = newCompany.settings.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS;
-      const sortedStatusSettings = [...statusSettings].sort((a, b) => a.order - b.order);
-
-      return (
-        <div className="min-h-screen bg-gray-100 flex flex-col">
-            <nav className="bg-gray-800 text-white p-4 shadow-md sticky top-0 z-10">
-                <div className="max-w-7xl mx-auto flex justify-between items-center">
-                    <h1 className="text-xl font-bold">Super Admin Dashboard</h1>
-                    <button onClick={handleLogout} className="bg-red-600 px-4 py-1.5 rounded text-sm hover:bg-red-500">Logout</button>
-                </div>
-            </nav>
-
-            <div className="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left: List of Companies */}
-                <div className="lg:col-span-1 space-y-4">
-                    <h2 className="text-lg font-bold text-gray-700 mb-2">Existing Companies</h2>
-                    
-                    {/* Search & Filters */}
-                    <div className="bg-white p-4 rounded shadow mb-4">
-                        <div className="relative mb-3">
-                            <input 
-                                type="text" 
-                                className="w-full border border-gray-300 rounded pl-8 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
-                                placeholder="Search by name or user..."
-                                value={adminSearchQuery}
-                                onChange={(e) => setAdminSearchQuery(e.target.value)}
-                            />
-                            <svg className="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                        </div>
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={() => setAdminFilter('ALL')}
-                                className={`flex-1 py-1 text-xs font-bold rounded border ${adminFilter === 'ALL' ? 'bg-blue-100 text-blue-800 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
-                            >
-                                All
-                            </button>
-                            <button 
-                                onClick={() => setAdminFilter('EXPIRING')}
-                                className={`flex-1 py-1 text-xs font-bold rounded border ${adminFilter === 'EXPIRING' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
-                            >
-                                Expiring
-                            </button>
-                            <button 
-                                onClick={() => setAdminFilter('EXPIRED')}
-                                className={`flex-1 py-1 text-xs font-bold rounded border ${adminFilter === 'EXPIRED' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
-                            >
-                                Expired
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto">
-                        {filteredAdminCompanies.length === 0 && (
-                            <div className="text-center text-gray-400 py-8 text-sm bg-white rounded border border-dashed">No companies match filter.</div>
-                        )}
-                        
-                        {filteredAdminCompanies.map(company => {
-                            const expDate = new Date(company.expiryDate);
-                            const now = new Date();
-                            now.setHours(0,0,0,0);
-                            const diffTime = expDate.getTime() - now.getTime();
-                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                            const isExpired = diffDays < 0;
-                            const isExpiringSoon = diffDays >= 0 && diffDays <= 30;
-
-                            let statusColor = "border-l-4 border-green-500";
-                            if (isExpired) statusColor = "border-l-4 border-red-500 bg-red-50";
-                            else if (isExpiringSoon) statusColor = "border-l-4 border-yellow-500 bg-yellow-50";
-
-                            return (
-                                <div key={company.id} className={`bg-white p-4 rounded shadow hover:shadow-md transition ${statusColor}`}>
-                                    <div className="flex justify-between items-start mb-2">
-                                        <div>
-                                            <h3 className="font-bold text-gray-800 text-base">{company.settings.companyName}</h3>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                {company.parentId && (
-                                                    <span className="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Branch</span>
-                                                )}
-                                                {isExpired && <span className="bg-red-200 text-red-800 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Expired</span>}
-                                                {isExpiringSoon && <span className="bg-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Expiring Soon</span>}
-                                            </div>
-                                        </div>
-                                        <button 
-                                            onClick={() => handleEditCompany(company)}
-                                            className="text-xs bg-white border border-gray-300 hover:bg-gray-100 text-gray-600 px-3 py-1 rounded shadow-sm"
-                                        >
-                                            Edit
-                                        </button>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs text-gray-500 border-t border-gray-200 pt-2 mt-2">
-                                        <p>User: <span className="font-mono font-semibold">{company.username}</span></p>
-                                        <p className={`${isExpired ? 'text-red-600 font-bold' : (isExpiringSoon ? 'text-yellow-700 font-bold' : '')}`}>
-                                            Exp: {company.expiryDate} {isExpired ? `(${Math.abs(diffDays)} days ago)` : (isExpiringSoon ? `(${diffDays} days left)` : '')}
-                                        </p>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* Right: Add/Edit Form */}
-                <div className="lg:col-span-2">
-                    <div className="bg-white p-6 rounded shadow sticky top-24">
-                        <div className="flex justify-between items-center mb-6 border-b pb-2">
-                            <h2 className="text-xl font-bold text-gray-800">
-                                {editingCompanyId ? 'Edit Company' : 'Create New Company'}
-                            </h2>
-                            {editingCompanyId && (
-                                <button onClick={handleCancelEdit} className="text-sm text-red-600 hover:underline">Cancel Editing</button>
-                            )}
-                        </div>
-
-                        <div className="space-y-6">
-                            {/* Section 1: Authentication */}
-                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Login Details</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Username</label>
-                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.username || ''} onChange={e => setNewCompany({...newCompany, username: e.target.value})} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Password</label>
-                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.password || ''} onChange={e => setNewCompany({...newCompany, password: e.target.value})} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Expiry Date</label>
-                                        <input className="w-full border p-2 rounded" type="date" value={newCompany.expiryDate} onChange={e => setNewCompany({...newCompany, expiryDate: e.target.value})} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Section 2: Branch Settings */}
-                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                                <label className="flex items-center gap-2 mb-3 cursor-pointer">
-                                    <input type="checkbox" checked={isBranch} onChange={e => setIsBranch(e.target.checked)} className="w-4 h-4" />
-                                    <span className="text-sm font-bold text-gray-700">Is this a Branch Office?</span>
-                                </label>
-                                {isBranch && (
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Parent Company</label>
-                                        <select 
-                                            className="w-full border p-2 rounded bg-white"
-                                            value={selectedParentId}
-                                            onChange={e => setSelectedParentId(e.target.value)}
-                                        >
-                                            <option value="">Select Parent HQ...</option>
-                                            {companies.filter(c => !c.parentId && c.id !== editingCompanyId).map(c => (
-                                                <option key={c.id} value={c.id}>{c.settings.companyName}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Section 3: Company Details */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (English)</label>
-                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.companyName || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, companyName: e.target.value}})} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (Arabic)</label>
-                                    <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.companyArabicName || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, companyArabicName: e.target.value}})} />
-                                </div>
-                                
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">Location Name (e.g. Riyadh Branch)</label>
-                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.location || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, location: e.target.value}})} placeholder="City or Branch Name" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">Logo URL</label>
-                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.logoUrl || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, logoUrl: e.target.value}})} placeholder="https://..." />
-                                </div>
-
-                                <div className="col-span-2">
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">Address Line 1</label>
-                                    <input className="w-full border p-2 rounded mb-2" type="text" value={newCompany.settings?.addressLine1 || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1: e.target.value}})} placeholder="English Address" />
-                                    <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.addressLine1Arabic || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, addressLine1Arabic: e.target.value}})} placeholder="العنوان بالعربي" />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">Phone 1</label>
-                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone1 || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, phone1: e.target.value}})} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">Phone 2</label>
-                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone2 || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, phone2: e.target.value}})} />
-                                </div>
-                            </div>
-
-                            {/* Section 4: Invoice Configuration */}
-                            <div className="bg-blue-50 p-4 rounded border border-blue-100">
-                                <h3 className="text-sm font-bold text-blue-800 uppercase mb-3">Invoice Configuration</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Prefix (e.g. RUH-)</label>
-                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.invoicePrefix || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, invoicePrefix: e.target.value}})} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Start Number</label>
-                                        <input className="w-full border p-2 rounded" type="number" value={newCompany.settings?.invoiceStartNumber || 1000} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, invoiceStartNumber: parseInt(e.target.value)}})} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Brand Color</label>
-                                        <input className="w-full h-10 border rounded cursor-pointer" type="color" value={newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, brandColor: e.target.value}})} />
-                                    </div>
-                                </div>
-                                <div className="mt-4 flex items-center gap-4">
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">VAT / Tax Number</label>
-                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.vatnoc || ''} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, vatnoc: e.target.value}})} />
-                                    </div>
-                                    <div className="flex items-center pt-5">
-                                        <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 border rounded shadow-sm">
-                                            <input type="checkbox" checked={newCompany.settings?.isVatEnabled || false} onChange={e => setNewCompany({...newCompany, settings: {...newCompany.settings, isVatEnabled: e.target.checked}})} className="w-4 h-4 text-blue-600" />
-                                            <span className="text-sm font-bold text-gray-700">Enable VAT (15%)</span>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Section 5: Shipment Types */}
-                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Shipment Types</h3>
-                                <div className="flex gap-2 mb-3">
-                                    <input className="flex-1 border p-2 rounded text-sm" placeholder="Type Name (e.g. AIR CARGO)" value={tempShipmentName} onChange={e => setTempShipmentName(e.target.value)} />
-                                    <input className="w-24 border p-2 rounded text-sm" type="number" placeholder="Rate" value={tempShipmentValue} onChange={e => setTempShipmentValue(e.target.value)} />
-                                    <button onClick={addShipmentType} className="bg-green-600 text-white px-4 rounded font-bold hover:bg-green-700">+</button>
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                    {(newCompany.settings?.shipmentTypes || []).map((type, idx) => (
-                                        <span key={idx} className="bg-white border border-gray-300 px-3 py-1 rounded-full text-sm flex items-center gap-2 shadow-sm">
-                                            <span className="font-bold text-gray-700">{type.name}</span>
-                                            <span className="text-blue-600 font-mono">{type.value}</span>
-                                            <button onClick={() => removeShipmentType(idx)} className="text-red-500 hover:text-red-700 font-bold ml-1">&times;</button>
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Section 6: Shipment Status Workflow */}
-                            <div className="bg-blue-50 border border-blue-100 p-4 rounded">
-                                <label className="block text-sm font-bold text-blue-900 mb-2">Shipment Status Workflow (Drag to Reorder)</label>
-                                <ul className="space-y-2">
-                                    {sortedStatusSettings.map((status, index) => (
-                                        <li 
-                                            key={status.id} 
-                                            className={`flex items-center gap-3 bg-white p-2 rounded shadow-sm border ${draggedStatusIndex === index ? 'opacity-50 border-dashed border-blue-500' : 'border-gray-200'}`}
-                                            draggable
-                                            onDragStart={(e) => handleStatusDragStart(e, index)}
-                                            onDragOver={(e) => handleStatusDragOver(e, index)}
-                                            onDrop={(e) => handleStatusDrop(e, index)}
-                                        >
-                                            {/* Drag Handle */}
-                                            <div className="cursor-grab text-gray-400 hover:text-gray-600 flex flex-col justify-center gap-[2px] w-4 items-center h-full py-1">
-                                                <div className="w-3 h-[2px] bg-current rounded-full"></div>
-                                                <div className="w-3 h-[2px] bg-current rounded-full"></div>
-                                                <div className="w-3 h-[2px] bg-current rounded-full"></div>
-                                            </div>
-                                            
-                                            <div className="flex-1">
-                                                <input 
-                                                    type="text" 
-                                                    className="w-full text-sm font-semibold text-gray-700 bg-transparent focus:outline-none focus:border-b focus:border-blue-500"
-                                                    value={status.name}
-                                                    onChange={(e) => handleStatusNameChange(index, e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="text-xs text-gray-400 font-mono">#{index + 1}</div>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-
-                            <button onClick={handleSaveCompany} className="w-full bg-blue-800 text-white font-bold py-3 rounded hover:bg-blue-700 transition shadow-lg">
-                                {editingCompanyId ? 'Update Company Details' : 'Create Company'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-      );
   }
 
   return null;
