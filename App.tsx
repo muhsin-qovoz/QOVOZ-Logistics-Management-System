@@ -1257,38 +1257,40 @@ const App: React.FC = () => {
             </div>
 
             <div className="bg-white rounded shadow overflow-hidden">
-                <table className="w-full text-left">
-                    <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
-                        <tr>
-                            <th className="p-4">Item Name</th>
-                            <th className="p-4 text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {(activeCompany?.items || []).map((item) => (
-                            <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                                <td className="p-4 font-bold text-gray-700">{item.name}</td>
-                                <td className="p-4 text-right">
-                                    <button 
-                                        onClick={() => { setEditingItem(item); setItemFormName(item.name); setIsItemModalOpen(true); }}
-                                        className="text-blue-600 hover:text-blue-800 font-bold mr-4 text-sm"
-                                    >
-                                        Edit
-                                    </button>
-                                    <button 
-                                        onClick={() => handleDeleteItem(item.id)}
-                                        className="text-red-500 hover:text-red-700 font-bold text-sm"
-                                    >
-                                        Delete
-                                    </button>
-                                </td>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
+                            <tr>
+                                <th className="p-4">Item Name</th>
+                                <th className="p-4 text-right">Actions</th>
                             </tr>
-                        ))}
-                         {(activeCompany?.items || []).length === 0 && (
-                            <tr><td colSpan={2} className="p-6 text-center text-gray-500">No items found.</td></tr>
-                        )}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {(activeCompany?.items || []).map((item) => (
+                                <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                                    <td className="p-4 font-bold text-gray-700">{item.name}</td>
+                                    <td className="p-4 text-right">
+                                        <button 
+                                            onClick={() => { setEditingItem(item); setItemFormName(item.name); setIsItemModalOpen(true); }}
+                                            className="text-blue-600 hover:text-blue-800 font-bold mr-4 text-sm"
+                                        >
+                                            Edit
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDeleteItem(item.id)}
+                                            className="text-red-500 hover:text-red-700 font-bold text-sm"
+                                        >
+                                            Delete
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                            {(activeCompany?.items || []).length === 0 && (
+                                <tr><td colSpan={2} className="p-6 text-center text-gray-500">No items found.</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </main>
 
@@ -1321,37 +1323,39 @@ const App: React.FC = () => {
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Customers</h2>
             {renderFilterBar()} 
             <div className="bg-white rounded shadow overflow-hidden">
-                 <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-100 text-gray-600 font-bold">
-                        <tr>
-                            <th className="p-4">Name</th>
-                            <th className="p-4">Mobile</th>
-                            <th className="p-4">ID No</th>
-                            <th className="p-4">Location</th>
-                            <th className="p-4 text-center">Shipments</th>
-                            <th className="p-4 text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {customers.map((c) => (
-                            <tr key={c.key} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => { setSelectedCustomer(c); updateView('CUSTOMER_DETAIL'); }}>
-                                <td className="p-4 font-bold text-blue-900">{c.name}</td>
-                                <td className="p-4">{c.mobile}</td>
-                                <td className="p-4 font-mono">{c.idNo}</td>
-                                <td className="p-4 text-xs text-gray-500">{c.location}</td>
-                                <td className="p-4 text-center font-bold">{c.totalShipments}</td>
-                                <td className="p-4 text-right">
-                                    <button 
-                                        onClick={(e) => handleEditCustomerClick(e, c)}
-                                        className="text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-100 font-bold text-xs"
-                                    >
-                                        Edit Details
-                                    </button>
-                                </td>
+                 <div className="overflow-x-auto">
+                     <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-100 text-gray-600 font-bold">
+                            <tr>
+                                <th className="p-4">Name</th>
+                                <th className="p-4">Mobile</th>
+                                <th className="p-4">ID No</th>
+                                <th className="p-4">Location</th>
+                                <th className="p-4 text-center">Shipments</th>
+                                <th className="p-4 text-right">Actions</th>
                             </tr>
-                        ))}
-                    </tbody>
-                 </table>
+                        </thead>
+                        <tbody>
+                            {customers.map((c) => (
+                                <tr key={c.key} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => { setSelectedCustomer(c); updateView('CUSTOMER_DETAIL'); }}>
+                                    <td className="p-4 font-bold text-blue-900">{c.name}</td>
+                                    <td className="p-4">{c.mobile}</td>
+                                    <td className="p-4 font-mono">{c.idNo}</td>
+                                    <td className="p-4 text-xs text-gray-500">{c.location}</td>
+                                    <td className="p-4 text-center font-bold">{c.totalShipments}</td>
+                                    <td className="p-4 text-right">
+                                        <button 
+                                            onClick={(e) => handleEditCustomerClick(e, c)}
+                                            className="text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-100 font-bold text-xs"
+                                        >
+                                            Edit Details
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                     </table>
+                 </div>
             </div>
             
             {/* Edit Customer Modal */}
@@ -1423,32 +1427,34 @@ const App: React.FC = () => {
                     <div className="px-6 py-4 border-b">
                         <h3 className="font-bold text-gray-700">Shipment History</h3>
                     </div>
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-gray-50 text-gray-600">
-                            <tr>
-                                <th className="p-4">Date</th>
-                                <th className="p-4">Invoice #</th>
-                                <th className="p-4">Consignee</th>
-                                <th className="p-4">Amount</th>
-                                <th className="p-4">Status</th>
-                                <th className="p-4 text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {customerInvoices.map((inv, idx) => (
-                                <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
-                                    <td className="p-4">{inv.date}</td>
-                                    <td className="p-4 font-mono font-bold text-blue-800">{inv.invoiceNo}</td>
-                                    <td className="p-4">{inv.consignee.name}</td>
-                                    <td className="p-4 font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
-                                    <td className="p-4"><span className="bg-gray-100 px-2 py-0.5 rounded text-xs">{inv.status}</span></td>
-                                    <td className="p-4 text-right">
-                                        <button onClick={() => { setCurrentInvoice(inv); updateView('PREVIEW_INVOICE'); }} className="text-blue-600 font-bold hover:underline">View</button>
-                                    </td>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th className="p-4">Date</th>
+                                    <th className="p-4">Invoice #</th>
+                                    <th className="p-4">Consignee</th>
+                                    <th className="p-4">Amount</th>
+                                    <th className="p-4">Status</th>
+                                    <th className="p-4 text-right">Action</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {customerInvoices.map((inv, idx) => (
+                                    <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
+                                        <td className="p-4">{inv.date}</td>
+                                        <td className="p-4 font-mono font-bold text-blue-800">{inv.invoiceNo}</td>
+                                        <td className="p-4">{inv.consignee.name}</td>
+                                        <td className="p-4 font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                                        <td className="p-4"><span className="bg-gray-100 px-2 py-0.5 rounded text-xs">{inv.status}</span></td>
+                                        <td className="p-4 text-right">
+                                            <button onClick={() => { setCurrentInvoice(inv); updateView('PREVIEW_INVOICE'); }} className="text-blue-600 font-bold hover:underline">View</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </main>
         </div>
@@ -1494,32 +1500,34 @@ const App: React.FC = () => {
                         Cash: <span className="font-bold text-black">{stats.cashInHand.toFixed(2)}</span> | Bank: <span className="font-bold text-black">{stats.bankBalance.toFixed(2)}</span>
                     </div>
                 </div>
-                <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-100 text-gray-600 font-bold">
-                        <tr>
-                            <th className="p-4">Date</th>
-                            <th className="p-4">Description</th>
-                            <th className="p-4">Account</th>
-                            <th className="p-4">Mode</th>
-                            <th className="p-4 text-right">Amount (SAR)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {(activeCompany?.financialTransactions || []).slice(0, 50).map((tx) => (
-                            <tr key={tx.id} className="border-b hover:bg-gray-50">
-                                <td className="p-4">{tx.date}</td>
-                                <td className="p-4 font-medium">{tx.description}</td>
-                                <td className="p-4 text-gray-500 text-xs uppercase">
-                                    {(activeCompany?.financialAccounts.find(a => a.id === tx.accountId)?.name) || tx.accountId}
-                                </td>
-                                <td className="p-4"><span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs">{tx.paymentMode || 'CASH'}</span></td>
-                                <td className={`p-4 text-right font-bold ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
-                                    {tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}
-                                </td>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-100 text-gray-600 font-bold">
+                            <tr>
+                                <th className="p-4">Date</th>
+                                <th className="p-4">Description</th>
+                                <th className="p-4">Account</th>
+                                <th className="p-4">Mode</th>
+                                <th className="p-4 text-right">Amount (SAR)</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {(activeCompany?.financialTransactions || []).slice(0, 50).map((tx) => (
+                                <tr key={tx.id} className="border-b hover:bg-gray-50">
+                                    <td className="p-4">{tx.date}</td>
+                                    <td className="p-4 font-medium">{tx.description}</td>
+                                    <td className="p-4 text-gray-500 text-xs uppercase">
+                                        {(activeCompany?.financialAccounts.find(a => a.id === tx.accountId)?.name) || tx.accountId}
+                                    </td>
+                                    <td className="p-4"><span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs">{tx.paymentMode || 'CASH'}</span></td>
+                                    <td className={`p-4 text-right font-bold ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
+                                        {tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </main>
 
@@ -1882,35 +1890,37 @@ const App: React.FC = () => {
 
           <h3 className="font-bold text-gray-700 mb-4 text-lg">Recent Activity</h3>
           <div className="bg-white rounded shadow-sm overflow-hidden border border-gray-100">
-              <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50 text-gray-500">
-                      <tr>
-                          <th className="p-3">Invoice #</th>
-                          <th className="p-3">Date</th>
-                          <th className="p-3">Customer</th>
-                          <th className="p-3">Status</th>
-                          <th className="p-3 text-right">Amount</th>
-                      </tr>
-                  </thead>
-                  <tbody>
-                      {filteredInvoices.slice(0, 5).map((inv, idx) => (
-                          <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
-                              <td className="p-3 font-mono font-bold text-blue-800">{inv.invoiceNo}</td>
-                              <td className="p-3 text-gray-600">{inv.date}</td>
-                              <td className="p-3 font-medium text-gray-900">{inv.shipper.name || 'Unknown'}</td>
-                              <td className="p-3">
-                                  <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
-                                      {inv.status || 'Received'}
-                                  </span>
-                              </td>
-                              <td className="p-3 text-right font-bold text-gray-700">SAR {inv.financials.netTotal.toFixed(2)}</td>
+              <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                      <thead className="bg-gray-50 text-gray-500">
+                          <tr>
+                              <th className="p-3">Invoice #</th>
+                              <th className="p-3">Date</th>
+                              <th className="p-3">Customer</th>
+                              <th className="p-3">Status</th>
+                              <th className="p-3 text-right">Amount</th>
                           </tr>
-                      ))}
-                      {filteredInvoices.length === 0 && (
-                          <tr><td colSpan={5} className="p-4 text-center text-gray-400">No activity found.</td></tr>
-                      )}
-                  </tbody>
-              </table>
+                      </thead>
+                      <tbody>
+                          {filteredInvoices.slice(0, 5).map((inv, idx) => (
+                              <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
+                                  <td className="p-3 font-mono font-bold text-blue-800">{inv.invoiceNo}</td>
+                                  <td className="p-3 text-gray-600">{inv.date}</td>
+                                  <td className="p-3 font-medium text-gray-900">{inv.shipper.name || 'Unknown'}</td>
+                                  <td className="p-3">
+                                      <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
+                                          {inv.status || 'Received'}
+                                      </span>
+                                  </td>
+                                  <td className="p-3 text-right font-bold text-gray-700">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                              </tr>
+                          ))}
+                          {filteredInvoices.length === 0 && (
+                              <tr><td colSpan={5} className="p-4 text-center text-gray-400">No activity found.</td></tr>
+                          )}
+                      </tbody>
+                  </table>
+              </div>
               {filteredInvoices.length > 0 && (
                   <div className="p-3 bg-gray-50 text-center border-t">
                       <button onClick={() => updateView('INVOICES')} className="text-blue-600 text-xs font-bold hover:underline">View All Invoices &rarr;</button>
