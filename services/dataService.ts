@@ -303,9 +303,11 @@ export const fetchCompanies = async (): Promise<Company[]> => {
 };
 
 export const persistAllCompanies = async (companies: Company[]) => {
-    // This is inefficient but compatible with existing array-based state logic.
-    // It upserts every company in the array to the 'companies' table.
-    const updates = companies.map(company => ({
+    // Sanitize companies to remove any non-serializable data (functions, symbols, etc)
+    // This fixes "The object can not be cloned" error if payload is tainted.
+    const cleanCompanies = JSON.parse(JSON.stringify(companies));
+
+    const updates = cleanCompanies.map((company: Company) => ({
         id: company.id,
         data: company
     }));
