@@ -631,6 +631,13 @@ const App: React.FC = () => {
                                     </svg>
                                     Branch Management
                                 </button>
+
+                                <button onClick={() => handleNavClick('APP_SETTINGS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'APP_SETTINGS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.533 1.533 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.533 1.533 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                                    </svg>
+                                    App Settings
+                                </button>
                             </>
                         )}
 
@@ -809,6 +816,10 @@ const App: React.FC = () => {
 
         if (newView === 'CREATE_INVOICE') {
             handleCreateInvoice();
+        }
+
+        if (newView === 'APP_SETTINGS' && activeCompany) {
+            handleEditCompany(activeCompany);
         }
 
         // Clear bulk selections when navigating away from Modify Status
@@ -1025,6 +1036,35 @@ const App: React.FC = () => {
         if (view === 'ADMIN_COMPANY_FORM') {
             updateView('SETTINGS');
         }
+
+        if (view === 'APP_SETTINGS') {
+            updateView('DASHBOARD');
+        }
+    };
+
+
+    const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Max 500KB
+        if (file.size > 500 * 1024) {
+            alert("Logo file is too large! Please use an image under 500KB.");
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const base64 = event.target?.result as string;
+            setNewCompany(prev => ({
+                ...prev,
+                settings: {
+                    ...prev.settings,
+                    logoUrl: base64
+                }
+            }));
+        };
+        reader.readAsDataURL(file);
     };
 
 
@@ -1884,7 +1924,7 @@ const App: React.FC = () => {
                         {selectedInvoiceNos.length > 0 && (
                             <button
                                 onClick={() => {
-                                    setTargetBulkStatus(activeCompany?.settings.shipmentStatusSettings[0]?.name || 'Received');
+                                    setTargetBulkStatus(activeCompany?.settings.shipmentStatusSettings?.[0]?.name || 'Received');
                                     setBulkStatusRemark('');
                                     setIsBulkModalOpen(true);
                                 }}
@@ -1954,13 +1994,13 @@ const App: React.FC = () => {
                                         </td>
                                         <td className="p-4 border-b text-right font-bold text-gray-900">SAR {inv.financials.netTotal.toFixed(2)}</td>
                                         <td className="p-4 border-b">
-                                            <span className={`px-2 py-0.5 rounded-[4px] text-[9px] uppercase font-black tracking-widest ${getStatusBadgeStyles(inv.status)}`}>
+                                            <span className={`px-2 py-0.5 rounded-[4px] text-[9px] uppercase font-black tracking-widest ${getStatusBadgeStyles(inv.status || 'Received')}`}>
                                                 {inv.status || 'Received'}
                                             </span>
                                         </td>
                                         <td className="p-4 border-b">
                                             <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
-                                                {inv.statusHistory?.length > 0 ? inv.statusHistory[inv.statusHistory.length - 1].timestamp.split('T')[0] : 'N/A'}
+                                                {(inv.statusHistory && inv.statusHistory.length > 0) ? inv.statusHistory[inv.statusHistory.length - 1].timestamp.split('T')[0] : 'N/A'}
                                             </div>
                                         </td>
                                     </tr>
@@ -2115,195 +2155,253 @@ const App: React.FC = () => {
                 <div className="space-y-6">
                     {/* Section 1: Authentication */}
                     <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                        <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Login Details</h3>
-                        <div className="grid grid-cols-2 gap-4">
+                        <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 text-center tracking-widest">Login Security</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-bold text-gray-600 mb-1">Username</label>
-                                <input className="w-full border p-2 rounded bg-gray-100 cursor-not-allowed" type="text" value={newCompany.username || ''} readOnly />
+                                <input className="w-full border p-2 rounded bg-gray-100 cursor-not-allowed font-mono text-xs" type="text" value={newCompany.username || ''} readOnly />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-600 mb-1">Password</label>
-                                <input className="w-full border p-2 rounded" type="text" value={newCompany.password || ''} onChange={e => setNewCompany({ ...newCompany, password: e.target.value })} />
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Update Password</label>
+                                <input className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition-all" type="text" value={newCompany.password || ''} onChange={e => setNewCompany({ ...newCompany, password: e.target.value })} placeholder="Enter new password" />
                             </div>
                         </div>
                     </div>
 
-                    {/* Section 3: Company Details */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (English)</label>
-                            <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.companyName || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, companyName: e.target.value } })} />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (Arabic)</label>
-                            <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.companyArabicName || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, companyArabicName: e.target.value } })} />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-gray-600 mb-1">Location Name (e.g. Riyadh Branch)</label>
-                            <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.location || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, location: e.target.value } })} placeholder="City or Branch Name" />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-600 mb-1">Logo URL</label>
-                            <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.logoUrl || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, logoUrl: e.target.value } })} placeholder="https://..." />
-                        </div>
-
-                        <div className="col-span-2">
-                            <label className="block text-xs font-bold text-gray-600 mb-1">Address Line 1</label>
-                            <input className="w-full border p-2 rounded mb-2" type="text" value={newCompany.settings?.addressLine1 || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, addressLine1: e.target.value } })} placeholder="English Address" />
-                            <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.addressLine1Arabic || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, addressLine1Arabic: e.target.value } })} placeholder="العنوان بالعربي" />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-gray-600 mb-1">Phone 1</label>
-                            <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone1 || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, phone1: e.target.value } })} />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-600 mb-1">Phone 2</label>
-                            <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone2 || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, phone2: e.target.value } })} />
-                        </div>
-                    </div>
-
-                    {/* Section 4: Invoice Configuration */}
-                    <div className="bg-blue-50 p-4 rounded border border-blue-100">
-                        <h3 className="text-sm font-bold text-blue-800 uppercase mb-3">Invoice Configuration</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Section 2: Branding (Logo & Color) */}
+                    <div className="bg-white p-4 rounded border border-gray-100 shadow-sm">
+                        <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 text-center tracking-widest">Branding & Identity</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <label className="block text-xs font-bold text-gray-600 mb-1">Prefix (e.g. RUH-)</label>
-                                <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.invoicePrefix || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, invoicePrefix: e.target.value } })} />
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Company logo</label>
+                                <p className="text-[10px] text-gray-400 mb-2 uppercase font-medium">Recommended: 400x400px • Max 500KB</p>
+                                <div className="flex items-center gap-3">
+                                    {newCompany.settings?.logoUrl && (
+                                        <div className="w-16 h-16 border-2 border-blue-50 rounded-xl bg-gray-50 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
+                                            <img src={newCompany.settings.logoUrl} alt="Logo Preview" className="max-w-full max-h-full object-contain" />
+                                        </div>
+                                    )}
+                                    <label className="flex-1 border-2 border-dashed border-blue-100 rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50 cursor-pointer transition-all text-center group">
+                                        <div className="flex flex-col items-center">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-400 mb-1 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                            </svg>
+                                            <span className="text-[10px] font-black text-blue-900 uppercase tracking-widest">
+                                                {newCompany.settings?.logoUrl ? 'Change logo' : 'Upload PNG/JPG'}
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="file"
+                                            className="hidden"
+                                            accept="image/*"
+                                            onChange={handleLogoUpload}
+                                        />
+                                    </label>
+                                    {newCompany.settings?.logoUrl && (
+                                        <button
+                                            onClick={() => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, logoUrl: '' } })}
+                                            className="bg-red-50 text-red-500 hover:bg-red-500 hover:text-white w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-sm"
+                                            title="Remove Logo"
+                                        >×</button>
+                                    )}
+                                </div>
                             </div>
+
                             <div>
-                                <label className="block text-xs font-bold text-gray-600 mb-1">Start Number</label>
-                                <input className="w-full border p-2 rounded" type="number" value={newCompany.settings?.invoiceStartNumber || 1000} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, invoiceStartNumber: parseInt(e.target.value) } })} />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-600 mb-1">Brand Color</label>
-                                <input className="w-full h-10 border rounded cursor-pointer" type="color" value={newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, brandColor: e.target.value } })} />
-                            </div>
-                        </div>
-                        <div className="mt-4 flex items-center gap-4">
-                            <div className="flex-1">
-                                <label className="block text-xs font-bold text-gray-600 mb-1">VAT / Tax Number</label>
-                                <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.vatnoc || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, vatnoc: e.target.value } })} />
-                            </div>
-                            <div className="flex items-center pt-5">
-                                <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 border rounded shadow-sm">
-                                    <input type="checkbox" checked={newCompany.settings?.isVatEnabled || false} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, isVatEnabled: e.target.checked } })} className="w-4 h-4 text-blue-600" />
-                                    <span className="text-sm font-bold text-gray-700">Enable VAT (15%)</span>
-                                </label>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Brand Theme Color</label>
+                                <p className="text-[10px] text-gray-400 mb-2 uppercase font-medium">Applied to Invoices & Buttons</p>
+                                <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                    <input
+                                        className="h-10 w-20 border-0 rounded cursor-pointer bg-transparent"
+                                        type="color"
+                                        value={newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR}
+                                        onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, brandColor: e.target.value } })}
+                                    />
+                                    <div className="flex-1">
+                                        <div className="text-[10px] font-mono font-bold text-gray-500 uppercase">{newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR}</div>
+                                        <div className="text-[9px] text-gray-400">Selected hex code</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Section 5: Shipment Types */}
-                    <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                        <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Shipment Types</h3>
-                        <div className="flex gap-2 mb-3">
-                            <input className="flex-1 border p-2 rounded text-sm" placeholder="Type Name (e.g. AIR CARGO)" value={tempShipmentName} onChange={e => setTempShipmentName(e.target.value)} />
-                            <input className="w-24 border p-2 rounded text-sm" type="number" placeholder="Rate" value={tempShipmentValue} onChange={e => setTempShipmentValue(e.target.value)} />
-                            <button onClick={addShipmentType} className="bg-green-600 text-white px-4 rounded font-bold hover:bg-green-700">+</button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            {(newCompany.settings?.shipmentTypes || []).map((type, idx) => (
-                                <span key={idx} className="bg-white border border-gray-300 px-3 py-1 rounded-full text-sm flex items-center gap-2 shadow-sm">
-                                    <span className="font-bold text-gray-700">{type.name}</span>
-                                    <span className="text-blue-600 font-mono">{type.value}</span>
-                                    <button onClick={() => removeShipmentType(idx)} className="text-red-500 hover:text-red-700 font-bold ml-1">&times;</button>
-                                </span>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Section 6: Legal Terms (Footer) */}
-                    <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                        <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Legal Terms (Footer)</h3>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-600 mb-1">T&C Header</label>
-                                <input
-                                    className="w-full border p-2 rounded text-sm"
-                                    type="text"
-                                    value={newCompany.settings?.tcHeader || ''}
-                                    onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, tcHeader: e.target.value } })}
-                                    placeholder="e.g. Terms and Conditions Apply"
-                                />
-                            </div>
+                    {view !== 'APP_SETTINGS' && (
+                        <>
+                            {/* Section 3: Company Details */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">English Terms</label>
-                                    <textarea
-                                        className="w-full border p-2 rounded text-xs h-24"
-                                        value={newCompany.settings?.tcEnglish || ''}
-                                        onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, tcEnglish: e.target.value } })}
-                                        placeholder="Terms in English..."
-                                    />
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (English)</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.companyName || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, companyName: e.target.value } })} />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1 text-right">Arabic Terms</label>
-                                    <textarea
-                                        className="w-full border p-2 rounded text-xs h-24 text-right"
-                                        dir="rtl"
-                                        value={newCompany.settings?.tcArabic || ''}
-                                        onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, tcArabic: e.target.value } })}
-                                        placeholder="الشروط والأحكام بالعربية..."
-                                    />
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Company Name (Arabic)</label>
+                                    <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.companyArabicName || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, companyArabicName: e.target.value } })} />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Location Name (e.g. Riyadh Branch)</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.location || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, location: e.target.value } })} placeholder="City or Branch Name" />
+                                </div>
+
+                                <div className="col-span-2">
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Address Line 1</label>
+                                    <input className="w-full border p-2 rounded mb-2" type="text" value={newCompany.settings?.addressLine1 || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, addressLine1: e.target.value } })} placeholder="English Address" />
+                                    <input className="w-full border p-2 rounded text-right" type="text" value={newCompany.settings?.addressLine1Arabic || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, addressLine1Arabic: e.target.value } })} placeholder="العنوان بالعربي" />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Phone 1</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone1 || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, phone1: e.target.value } })} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Phone 2</label>
+                                    <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.phone2 || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, phone2: e.target.value } })} />
                                 </div>
                             </div>
-                        </div>
-                    </div>
 
-                    {/* Section 7: Status Workflow Management */}
-                    <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                        <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 text-center">Status Workflow Management</h3>
-                        <p className="text-[10px] text-gray-400 mb-4 text-center uppercase tracking-widest font-bold">Add, Remove or Drag to Reorder Statuses</p>
-
-                        <div className="flex gap-2 mb-4">
-                            <input
-                                className="flex-1 border p-2 rounded text-sm"
-                                placeholder="New Status Name (e.g. AT WAREHOUSE)"
-                                value={tempStatusName}
-                                onChange={e => setTempStatusName(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && addShipmentStatus()}
-                            />
-                            <button onClick={addShipmentStatus} className="bg-blue-600 text-white px-6 rounded font-bold hover:bg-blue-700 shadow-sm">+</button>
-                        </div>
-
-                        <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
-                            {(newCompany.settings?.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS).map((status, idx) => (
-                                <div
-                                    key={status.id}
-                                    draggable
-                                    onDragStart={(e) => handleStatusDragStart(e, idx)}
-                                    onDragOver={(e) => handleStatusDragOver(e, idx)}
-                                    onDrop={(e) => handleStatusDrop(e, idx)}
-                                    className={`bg-white border rounded-xl p-3 flex items-center gap-3 group transition-all hover:border-blue-300 hover:shadow-sm cursor-move ${draggedStatusIndex === idx ? 'opacity-50 ring-2 ring-blue-500' : ''}`}
-                                >
-                                    <div className="text-gray-300 group-hover:text-blue-400">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-                                        </svg>
+                            {/* Section 4: Invoice Configuration */}
+                            <div className="bg-blue-50 p-4 rounded border border-blue-100">
+                                <h3 className="text-sm font-bold text-blue-800 uppercase mb-3 text-center tracking-widest">Invoice Configuration</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Prefix (e.g. RUH-)</label>
+                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.invoicePrefix || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, invoicePrefix: e.target.value } })} />
                                     </div>
-                                    <div className="bg-blue-50 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-blue-600 shrink-0">
-                                        {idx + 1}
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Start Number</label>
+                                        <input className="w-full border p-2 rounded" type="number" value={newCompany.settings?.invoiceStartNumber || 1000} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, invoiceStartNumber: parseInt(e.target.value) } })} />
                                     </div>
-                                    <input
-                                        className="flex-1 font-bold text-gray-700 border-none p-0 focus:ring-0 text-sm bg-transparent"
-                                        value={status.name}
-                                        onChange={(e) => handleStatusNameChange(idx, e.target.value)}
-                                    />
-                                    <button
-                                        onClick={() => removeShipmentStatus(idx)}
-                                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                                        title="Delete Status"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
+                                    <div className="bg-white p-2 rounded border border-blue-200">
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Legacy Brand Color</label>
+                                        <input className="w-full h-8 border rounded cursor-pointer" type="color" value={newCompany.settings?.brandColor || DEFAULT_BRAND_COLOR} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, brandColor: e.target.value } })} />
+                                    </div>
                                 </div>
-                            ))}
-                        </div>
-                    </div>
+                                <div className="mt-4 flex items-center gap-4">
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">VAT / Tax Number</label>
+                                        <input className="w-full border p-2 rounded" type="text" value={newCompany.settings?.vatnoc || ''} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, vatnoc: e.target.value } })} />
+                                    </div>
+                                    <div className="flex items-center pt-5">
+                                        <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 border rounded shadow-sm">
+                                            <input type="checkbox" checked={newCompany.settings?.isVatEnabled || false} onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, isVatEnabled: e.target.checked } })} className="w-4 h-4 text-blue-600" />
+                                            <span className="text-sm font-bold text-gray-700">Enable VAT (15%)</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 5: Shipment Types */}
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 text-center tracking-widest">Shipment Types</h3>
+                                <div className="flex gap-2 mb-3">
+                                    <input className="flex-1 border p-2 rounded text-sm" placeholder="Type Name (e.g. AIR CARGO)" value={tempShipmentName} onChange={e => setTempShipmentName(e.target.value)} />
+                                    <input className="w-24 border p-2 rounded text-sm" type="number" placeholder="Rate" value={tempShipmentValue} onChange={e => setTempShipmentValue(e.target.value)} />
+                                    <button onClick={addShipmentType} className="bg-green-600 text-white px-4 rounded font-bold hover:bg-green-700">+</button>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {(newCompany.settings?.shipmentTypes || []).map((type, idx) => (
+                                        <span key={idx} className="bg-white border border-gray-300 px-3 py-1 rounded-full text-sm flex items-center gap-2 shadow-sm">
+                                            <span className="font-bold text-gray-700">{type.name}</span>
+                                            <span className="text-blue-600 font-mono">{type.value}</span>
+                                            <button onClick={() => removeShipmentType(idx)} className="text-red-500 hover:text-red-700 font-bold ml-1">&times;</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Section 6: Legal Terms (Footer) */}
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 text-center tracking-widest">Legal Terms (Footer)</h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">T&C Header</label>
+                                        <input
+                                            className="w-full border p-2 rounded text-sm"
+                                            type="text"
+                                            value={newCompany.settings?.tcHeader || ''}
+                                            onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, tcHeader: e.target.value } })}
+                                            placeholder="e.g. Terms and Conditions Apply"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">English Terms</label>
+                                            <textarea
+                                                className="w-full border p-2 rounded text-xs h-24"
+                                                value={newCompany.settings?.tcEnglish || ''}
+                                                onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, tcEnglish: e.target.value } })}
+                                                placeholder="Terms in English..."
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1 text-right">Arabic Terms</label>
+                                            <textarea
+                                                className="w-full border p-2 rounded text-xs h-24 text-right"
+                                                dir="rtl"
+                                                value={newCompany.settings?.tcArabic || ''}
+                                                onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, tcArabic: e.target.value } })}
+                                                placeholder="الشروط والأحكام بالعربية..."
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 7: Status Workflow Management */}
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 text-center tracking-widest">Status Workflow Management</h3>
+                                <p className="text-[10px] text-gray-400 mb-4 text-center uppercase tracking-widest font-bold">Add, Remove or Drag to Reorder Statuses</p>
+
+                                <div className="flex gap-2 mb-4">
+                                    <input
+                                        className="flex-1 border p-2 rounded text-sm"
+                                        placeholder="New Status Name (e.g. AT WAREHOUSE)"
+                                        value={tempStatusName}
+                                        onChange={e => setTempStatusName(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && addShipmentStatus()}
+                                    />
+                                    <button onClick={addShipmentStatus} className="bg-blue-600 text-white px-6 rounded font-bold hover:bg-blue-700 shadow-sm">+</button>
+                                </div>
+
+                                <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+                                    {(newCompany.settings?.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS).map((status, idx) => (
+                                        <div
+                                            key={status.id}
+                                            draggable
+                                            onDragStart={(e) => handleStatusDragStart(e, idx)}
+                                            onDragOver={(e) => handleStatusDragOver(e, idx)}
+                                            onDrop={(e) => handleStatusDrop(e, idx)}
+                                            className={`bg-white border rounded-xl p-3 flex items-center gap-3 group transition-all hover:border-blue-300 hover:shadow-sm cursor-move ${draggedStatusIndex === idx ? 'opacity-50 ring-2 ring-blue-500' : ''}`}
+                                        >
+                                            <div className="text-gray-300 group-hover:text-blue-400">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                                                </svg>
+                                            </div>
+                                            <div className="bg-blue-50 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-blue-600 shrink-0">
+                                                {idx + 1}
+                                            </div>
+                                            <input
+                                                className="flex-1 font-bold text-gray-700 border-none p-0 focus:ring-0 text-sm bg-transparent"
+                                                value={status.name}
+                                                onChange={(e) => handleStatusNameChange(idx, e.target.value)}
+                                            />
+                                            <button
+                                                onClick={() => removeShipmentStatus(idx)}
+                                                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                                title="Delete Status"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </>
+                    )}
 
                     <button onClick={handleSaveCompany} className="w-full bg-blue-800 text-white font-bold py-3 rounded hover:bg-blue-700 transition shadow-lg">
                         Save Changes
@@ -2644,7 +2742,7 @@ const App: React.FC = () => {
                                             <td className="p-3 text-gray-600">{inv.date}</td>
                                             <td className="p-3 font-medium text-gray-900">{inv.shipper.name || 'Unknown'}</td>
                                             <td className="p-3">
-                                                <span className={`px-2 py-0.5 rounded-[4px] text-[9px] uppercase font-black tracking-widest ${getStatusBadgeStyles(inv.status)}`}>
+                                                <span className={`px-2 py-0.5 rounded-[4px] text-[9px] uppercase font-black tracking-widest ${getStatusBadgeStyles(inv.status || 'Received')}`}>
                                                     {inv.status || 'Received'}
                                                 </span>
                                             </td>
@@ -2730,7 +2828,7 @@ const App: React.FC = () => {
                                                 <td className="p-4 border-b">
                                                     <button
                                                         onClick={() => setViewingHistoryInvoice(inv)}
-                                                        className={`px-3 py-1 rounded-[4px] text-[10px] uppercase font-bold hover:opacity-80 transition shadow-sm ${getStatusBadgeStyles(inv.status)}`}
+                                                        className={`px-3 py-1 rounded-[4px] text-[10px] uppercase font-bold hover:opacity-80 transition shadow-sm ${getStatusBadgeStyles(inv.status || 'Received')}`}
                                                         title="Click to view history"
                                                     >
                                                         {inv.status || 'Received'}
@@ -2826,6 +2924,24 @@ const App: React.FC = () => {
                 <main className="max-w-4xl mx-auto p-6">
                     <div className="mb-6 flex items-center gap-4">
                         <button onClick={() => updateView('SETTINGS')} className="text-gray-500 hover:text-black font-bold text-sm flex items-center gap-1">
+                            &larr; Back to Dashboard
+                        </button>
+                    </div>
+                    {renderCompanyForm()}
+                </main>
+            </div>
+        );
+    }
+
+    if (view === 'APP_SETTINGS' && activeCompany) {
+        return (
+            <div className="min-h-screen bg-gray-50">
+                {renderHeader()}
+                {renderSidebar()}
+                <main className="max-w-4xl mx-auto p-6">
+                    <div className="mb-6 flex items-center justify-between">
+                        <h2 className="text-2xl font-bold text-gray-800">App Settings</h2>
+                        <button onClick={() => updateView('DASHBOARD')} className="text-gray-500 hover:text-black font-bold text-sm flex items-center gap-1">
                             &larr; Back to Dashboard
                         </button>
                     </div>
