@@ -631,13 +631,6 @@ const App: React.FC = () => {
                                     </svg>
                                     Branch Management
                                 </button>
-
-                                <button onClick={() => handleNavClick('APP_SETTINGS')} className={`px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3 ${view === 'APP_SETTINGS' ? 'bg-blue-50 text-blue-900 font-bold border-r-4 border-blue-900' : 'text-gray-700'}`}>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.533 1.533 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.533 1.533 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                                    </svg>
-                                    App Settings
-                                </button>
                             </>
                         )}
 
@@ -816,10 +809,6 @@ const App: React.FC = () => {
 
         if (newView === 'CREATE_INVOICE') {
             handleCreateInvoice();
-        }
-
-        if (newView === 'APP_SETTINGS' && activeCompany) {
-            handleEditCompany(activeCompany);
         }
 
         // Clear bulk selections when navigating away from Modify Status
@@ -1037,8 +1026,8 @@ const App: React.FC = () => {
             updateView('SETTINGS');
         }
 
-        if (view === 'APP_SETTINGS') {
-            updateView('DASHBOARD');
+        if (view === 'ADMIN_COMPANY_FORM') {
+            updateView('SETTINGS');
         }
     };
 
@@ -2159,11 +2148,18 @@ const App: React.FC = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-bold text-gray-600 mb-1">Username</label>
-                                <input className="w-full border p-2 rounded bg-gray-100 cursor-not-allowed font-mono text-xs" type="text" value={newCompany.username || ''} readOnly />
+                                <input
+                                    className={`w-full border p-2 rounded font-mono text-xs ${editingCompanyId ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`}
+                                    type="text"
+                                    value={newCompany.username || ''}
+                                    onChange={e => !editingCompanyId && setNewCompany({ ...newCompany, username: e.target.value })}
+                                    readOnly={!!editingCompanyId}
+                                    placeholder="Enter username"
+                                />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-600 mb-1">Update Password</label>
-                                <input className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition-all" type="text" value={newCompany.password || ''} onChange={e => setNewCompany({ ...newCompany, password: e.target.value })} placeholder="Enter new password" />
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Password</label>
+                                <input className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition-all" type="text" value={newCompany.password || ''} onChange={e => setNewCompany({ ...newCompany, password: e.target.value })} placeholder="Enter password" />
                             </div>
                         </div>
                     </div>
@@ -2226,7 +2222,7 @@ const App: React.FC = () => {
                         </div>
                     </div>
 
-                    {view !== 'APP_SETTINGS' && (
+                    {view === 'ADMIN_COMPANY_FORM' && (
                         <>
                             {/* Section 3: Company Details */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2534,7 +2530,7 @@ const App: React.FC = () => {
         const isHQAdmin = activeCompany && !activeCompany.parentId;
 
         return (
-            <div className="min-h-screen bg-gray-50">
+            <div className="min-h-screen bg-gray-50 uppercase">
                 {renderHeader()}
                 {renderSidebar()}
                 <main className="max-w-7xl mx-auto p-6">
@@ -2552,16 +2548,16 @@ const App: React.FC = () => {
                                         <div>
                                             <h4 className="text-xl font-black text-gray-900 uppercase">{hq.settings.companyName} ({hq.settings.location || 'HQ'})</h4>
                                             <p className="text-sm text-gray-500 mt-1 uppercase font-semibold">{hq.settings.addressLine1} {hq.settings.addressLine2 ? `, ${hq.settings.addressLine2}` : ''}</p>
-                                            <p className="text-sm text-gray-500 mt-1">Phone: {hq.settings.phone1}</p>
+                                            <p className="text-sm text-gray-500 mt-1 uppercase">Phone: {hq.settings.phone1}</p>
                                         </div>
                                         <div className="mt-4 md:mt-0 flex flex-col items-end gap-2">
                                             <div className="flex gap-2">
-                                                <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">HEADQUARTERS</span>
-                                                <span className="text-green-600 font-bold text-sm flex items-center gap-1">
+                                                <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">HEADQUARTERS</span>
+                                                <span className={`${activeCompany?.id === hq.id ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'} px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider`}>
                                                     {activeCompany?.id === hq.id ? 'Active (You)' : 'Active'}
                                                 </span>
                                             </div>
-                                            <p className="text-xs text-gray-400">User: {hq.username}</p>
+                                            <p className="text-xs text-gray-400 lowercase italic">User: {hq.username}</p>
                                         </div>
 
                                         <button
@@ -2581,40 +2577,51 @@ const App: React.FC = () => {
                             <div>
                                 <h3 className="text-sm font-bold text-gray-500 uppercase mb-4 tracking-wide">NETWORK BRANCHES ({branches.length})</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    {branches.map(branch => (
-                                        <div key={branch.id} className="bg-white rounded-lg shadow-sm border border-gray-100 p-6 flex flex-col h-full relative group hover:shadow-md transition">
-                                            <div className="flex-1">
-                                                <h4 className="text-lg font-bold text-gray-900 mb-1">{branch.settings.companyName} ({branch.settings.location})</h4>
-                                                <p className="text-sm text-gray-500 font-medium uppercase mb-2">{branch.settings.location}</p>
-                                                <p className="text-sm text-gray-500 flex items-center gap-2">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                                                    </svg>
-                                                    {branch.settings.phone1}
-                                                </p>
-                                            </div>
+                                    {branches.map(branch => {
+                                        const isActive = activeCompany?.id === branch.id;
+                                        return (
+                                            <div key={branch.id} className={`bg-white rounded-lg shadow-sm border p-6 flex flex-col h-full relative group hover:shadow-md transition ${isActive ? 'border-green-500 ring-4 ring-green-50/50' : 'border-gray-100'}`}>
+                                                <div className="flex-1">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <h4 className="text-lg font-bold text-gray-900 uppercase leading-tight">{branch.settings.companyName} ({branch.settings.location})</h4>
+                                                        {isActive && (
+                                                            <span className="bg-green-100 text-green-700 text-[10px] px-2 py-1 rounded-full font-bold uppercase tracking-wider flex items-center gap-1 shrink-0">
+                                                                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                                                                You
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-sm text-gray-500 font-bold uppercase mb-4 tracking-tight">{branch.settings.location}</p>
+                                                    <p className="text-sm text-gray-500 flex items-center gap-2 font-medium">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                                        </svg>
+                                                        {branch.settings.phone1}
+                                                    </p>
+                                                </div>
 
-                                            <div className="mt-6 border-t pt-4 flex justify-between items-center">
-                                                <span className="text-xs text-gray-500">User: <span className="font-mono font-medium">{branch.username}</span></span>
-                                                <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-bold border border-gray-200">Branch Office</span>
-                                            </div>
+                                                <div className="mt-6 border-t pt-4 flex justify-between items-center">
+                                                    <span className="text-xs text-gray-500 lowercase italic">Used By: <span className="font-mono font-bold text-gray-700">{branch.username}</span></span>
+                                                    <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-md text-[10px] font-black uppercase border border-gray-200">Branch</span>
+                                                </div>
 
-                                            {(isHQAdmin || activeCompany?.id === branch.id) && (
-                                                <button
-                                                    onClick={() => handleBranchEditClick(branch)}
-                                                    className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-100 hover:bg-gray-200 p-2 rounded text-gray-600"
-                                                    title="Edit Settings"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                    </svg>
-                                                </button>
-                                            )}
-                                        </div>
-                                    ))}
+                                                {(isHQAdmin || isActive) && (
+                                                    <button
+                                                        onClick={() => handleBranchEditClick(branch)}
+                                                        className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-100 hover:bg-gray-200 p-2 rounded text-gray-600 shadow-sm"
+                                                        title="Edit Settings"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                        </svg>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                     {branches.length === 0 && (
-                                        <div className="col-span-full py-8 text-center bg-white rounded border border-dashed text-gray-400 text-sm">
-                                            No branches found in this network.
+                                        <div className="col-span-full py-12 text-center bg-white rounded-xl border-2 border-dashed border-gray-200 text-gray-400 text-sm font-bold uppercase tracking-widest">
+                                            No Network Branches Found
                                         </div>
                                     )}
                                 </div>
@@ -2623,7 +2630,7 @@ const App: React.FC = () => {
                     )}
                 </main>
             </div>
-        )
+        );
     };
 
     if (isLoading) {
@@ -2933,23 +2940,7 @@ const App: React.FC = () => {
         );
     }
 
-    if (view === 'APP_SETTINGS' && activeCompany) {
-        return (
-            <div className="min-h-screen bg-gray-50">
-                {renderHeader()}
-                {renderSidebar()}
-                <main className="max-w-4xl mx-auto p-6">
-                    <div className="mb-6 flex items-center justify-between">
-                        <h2 className="text-2xl font-bold text-gray-800">App Settings</h2>
-                        <button onClick={() => updateView('DASHBOARD')} className="text-gray-500 hover:text-black font-bold text-sm flex items-center gap-1">
-                            &larr; Back to Dashboard
-                        </button>
-                    </div>
-                    {renderCompanyForm()}
-                </main>
-            </div>
-        );
-    }
+
 
     if (view === 'LOGIN') {
         return (
