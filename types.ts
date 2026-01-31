@@ -25,6 +25,7 @@ export interface StatusHistoryItem {
   status: ShipmentStatus;
   timestamp: string; // ISO string with date and time
   updatedBy?: string;
+  remark?: string;
 }
 
 export interface InvoiceData {
@@ -87,7 +88,7 @@ export interface SavedCustomer {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL' | 'FINANCE' | 'ITEMS' | 'ADMIN_COMPANY_FORM';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL' | 'FINANCE' | 'ITEMS' | 'ADMIN_COMPANY_FORM' | 'SHIPMENT_TYPES' | 'BULK_STATUS_CHANGE';
 
 export interface ShipmentType {
   name: string;
@@ -125,7 +126,7 @@ export type TransactionType = 'INCOME' | 'EXPENSE';
 export interface FinancialAccount {
   id: string;
   name: string;
-  type: 'REVENUE' | 'EXPENSE' | 'ASSET' | 'LIABILITY'; 
+  type: 'REVENUE' | 'EXPENSE' | 'ASSET' | 'LIABILITY';
   isSystem?: boolean; // If true, cannot be deleted (e.g., Sales, General Expenses)
 }
 
@@ -148,17 +149,17 @@ export interface Company {
   username: string;
   password: string;
   expiryDate: string; // YYYY-MM-DD
-  
+
   // Branding & Settings
   settings: AppSettings;
 
   // Data
   invoices: InvoiceData[];
-  
+
   // Finance Module
   financialAccounts: FinancialAccount[];
   financialTransactions: FinancialTransaction[];
-  
+
   // Items Module
   items?: ItemMaster[];
 }
