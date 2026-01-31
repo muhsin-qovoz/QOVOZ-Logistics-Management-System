@@ -170,6 +170,7 @@ const App: React.FC = () => {
     // Temp state for adding shipment types
     const [tempShipmentName, setTempShipmentName] = useState('');
     const [tempShipmentValue, setTempShipmentValue] = useState('');
+    const [tempStatusName, setTempStatusName] = useState('');
 
     // DnD State for Shipment Statuses
     const [draggedStatusIndex, setDraggedStatusIndex] = useState<number | null>(null);
@@ -889,6 +890,36 @@ const App: React.FC = () => {
             settings: {
                 ...prev.settings,
                 shipmentStatusSettings: updatedList
+            }
+        }));
+    };
+
+    const addShipmentStatus = () => {
+        if (!tempStatusName) return;
+        const currentStatuses = newCompany.settings?.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS;
+        const newStatus: ShipmentStatusSetting = {
+            id: `sts_${Date.now()}`,
+            name: tempStatusName,
+            order: currentStatuses.length
+        };
+        setNewCompany(prev => ({
+            ...prev,
+            settings: {
+                ...prev.settings,
+                shipmentStatusSettings: [...currentStatuses, newStatus]
+            }
+        }));
+        setTempStatusName('');
+    };
+
+    const removeShipmentStatus = (index: number) => {
+        const currentStatuses = newCompany.settings?.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS;
+        const updated = currentStatuses.filter((_, i) => i !== index).map((s, i) => ({ ...s, order: i }));
+        setNewCompany(prev => ({
+            ...prev,
+            settings: {
+                ...prev.settings,
+                shipmentStatusSettings: updated
             }
         }));
     };
@@ -2179,6 +2210,97 @@ const App: React.FC = () => {
                                     <span className="text-blue-600 font-mono">{type.value}</span>
                                     <button onClick={() => removeShipmentType(idx)} className="text-red-500 hover:text-red-700 font-bold ml-1">&times;</button>
                                 </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Section 6: Legal Terms (Footer) */}
+                    <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                        <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Legal Terms (Footer)</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">T&C Header</label>
+                                <input
+                                    className="w-full border p-2 rounded text-sm"
+                                    type="text"
+                                    value={newCompany.settings?.tcHeader || ''}
+                                    onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, tcHeader: e.target.value } })}
+                                    placeholder="e.g. Terms and Conditions Apply"
+                                />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">English Terms</label>
+                                    <textarea
+                                        className="w-full border p-2 rounded text-xs h-24"
+                                        value={newCompany.settings?.tcEnglish || ''}
+                                        onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, tcEnglish: e.target.value } })}
+                                        placeholder="Terms in English..."
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1 text-right">Arabic Terms</label>
+                                    <textarea
+                                        className="w-full border p-2 rounded text-xs h-24 text-right"
+                                        dir="rtl"
+                                        value={newCompany.settings?.tcArabic || ''}
+                                        onChange={e => setNewCompany({ ...newCompany, settings: { ...newCompany.settings, tcArabic: e.target.value } })}
+                                        placeholder="الشروط والأحكام بالعربية..."
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Section 7: Status Workflow Management */}
+                    <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                        <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 text-center">Status Workflow Management</h3>
+                        <p className="text-[10px] text-gray-400 mb-4 text-center uppercase tracking-widest font-bold">Add, Remove or Drag to Reorder Statuses</p>
+
+                        <div className="flex gap-2 mb-4">
+                            <input
+                                className="flex-1 border p-2 rounded text-sm"
+                                placeholder="New Status Name (e.g. AT WAREHOUSE)"
+                                value={tempStatusName}
+                                onChange={e => setTempStatusName(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && addShipmentStatus()}
+                            />
+                            <button onClick={addShipmentStatus} className="bg-blue-600 text-white px-6 rounded font-bold hover:bg-blue-700 shadow-sm">+</button>
+                        </div>
+
+                        <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+                            {(newCompany.settings?.shipmentStatusSettings || DEFAULT_SHIPMENT_STATUS_SETTINGS).map((status, idx) => (
+                                <div
+                                    key={status.id}
+                                    draggable
+                                    onDragStart={(e) => handleStatusDragStart(e, idx)}
+                                    onDragOver={(e) => handleStatusDragOver(e, idx)}
+                                    onDrop={(e) => handleStatusDrop(e, idx)}
+                                    className={`bg-white border rounded-xl p-3 flex items-center gap-3 group transition-all hover:border-blue-300 hover:shadow-sm cursor-move ${draggedStatusIndex === idx ? 'opacity-50 ring-2 ring-blue-500' : ''}`}
+                                >
+                                    <div className="text-gray-300 group-hover:text-blue-400">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                                        </svg>
+                                    </div>
+                                    <div className="bg-blue-50 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-blue-600 shrink-0">
+                                        {idx + 1}
+                                    </div>
+                                    <input
+                                        className="flex-1 font-bold text-gray-700 border-none p-0 focus:ring-0 text-sm bg-transparent"
+                                        value={status.name}
+                                        onChange={(e) => handleStatusNameChange(idx, e.target.value)}
+                                    />
+                                    <button
+                                        onClick={() => removeShipmentStatus(idx)}
+                                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                        title="Delete Status"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
                             ))}
                         </div>
                     </div>
