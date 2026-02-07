@@ -86,6 +86,8 @@ const App: React.FC = () => {
         }
     }, [companies, isLoading]);
 
+
+
     // Session
     const [activeCompanyId, setActiveCompanyId] = useState<string | null>(null);
     const [isSuperAdmin, setIsSuperAdmin] = useState(false);
@@ -136,6 +138,37 @@ const App: React.FC = () => {
     const [editingShipmentType, setEditingShipmentType] = useState<{ index: number; type: ShipmentType } | null>(null);
     const [shipmentTypeFormName, setShipmentTypeFormName] = useState('');
     const [shipmentTypeFormValue, setShipmentTypeFormValue] = useState('');
+
+    // Session Persistence: Restore
+    useEffect(() => {
+        const savedCompanyId = localStorage.getItem('qovoz_activeCompanyId');
+        const savedIsSuperAdmin = localStorage.getItem('qovoz_isSuperAdmin') === 'true';
+        const savedView = localStorage.getItem('qovoz_view') as ViewState | null;
+        const savedLocationFilter = localStorage.getItem('qovoz_dashboardLocationFilter');
+
+        if (savedIsSuperAdmin) setIsSuperAdmin(true);
+        if (savedCompanyId) setActiveCompanyId(savedCompanyId);
+        if (savedLocationFilter) setDashboardLocationFilter(savedLocationFilter);
+
+        if (savedView && savedView !== 'LOGIN') {
+            // Check if we have enough context to restore the view
+            if (savedIsSuperAdmin || savedCompanyId) {
+                setView(savedView);
+            }
+        }
+    }, []);
+
+    // Session Persistence: Save
+    useEffect(() => {
+        if (activeCompanyId) {
+            localStorage.setItem('qovoz_activeCompanyId', activeCompanyId);
+        } else {
+            localStorage.removeItem('qovoz_activeCompanyId');
+        }
+        localStorage.setItem('qovoz_isSuperAdmin', isSuperAdmin.toString());
+        localStorage.setItem('qovoz_view', view);
+        localStorage.setItem('qovoz_dashboardLocationFilter', (dashboardLocationFilter || 'ALL').toString());
+    }, [activeCompanyId, isSuperAdmin, view, dashboardLocationFilter]);
 
     // Branch Management State
     const [branchManagementMode, setBranchManagementMode] = useState<'LIST' | 'EDIT'>('LIST');
@@ -438,6 +471,16 @@ const App: React.FC = () => {
         return counts;
     }, [filteredInvoices]);
 
+    const allTimeStatusCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        allNetworkInvoices.forEach(inv => {
+            if (dashboardLocationFilter !== 'ALL' && inv._companyId !== dashboardLocationFilter) return;
+            const status = inv.status || 'Received';
+            counts[status] = (counts[status] || 0) + 1;
+        });
+        return counts;
+    }, [allNetworkInvoices, dashboardLocationFilter]);
+
     const stats = useMemo(() => {
         const totalShipments = filteredInvoices.length;
         const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
@@ -507,6 +550,39 @@ const App: React.FC = () => {
 
         return { totalShipments, totalRevenue, totalExpenses, cashInHand, bankBalance };
     }, [filteredInvoices, relatedCompanies, dashboardLocationFilter, dateRange, customStart, customEnd]);
+
+    const allTimeStats = useMemo(() => {
+        let companiesToStats = relatedCompanies;
+        if (dashboardLocationFilter !== 'ALL') {
+            companiesToStats = relatedCompanies.filter(c => c.id === dashboardLocationFilter);
+        }
+        const transactions = companiesToStats.flatMap(c => c.financialTransactions);
+        let cashInHand = 0;
+        let bankBalance = 0;
+
+        transactions.forEach(tx => {
+            const val = tx.type === 'INCOME' ? tx.amount : -tx.amount;
+            if (tx.paymentMode === 'BANK') {
+                bankBalance += val;
+            } else {
+                cashInHand += val;
+            }
+        });
+
+        return { cashInHand, bankBalance };
+    }, [relatedCompanies, dashboardLocationFilter]);
+
+    const latest10Invoices = useMemo(() => {
+        let source = allNetworkInvoices;
+        if (dashboardLocationFilter !== 'ALL') {
+            source = allNetworkInvoices.filter(inv => inv._companyId === dashboardLocationFilter);
+        }
+        return [...source].sort((a, b) => {
+            const [da, ma, ya] = a.date.split('/').map(Number);
+            const [db, mb, yb] = b.date.split('/').map(Number);
+            return new Date(yb, mb - 1, db).getTime() - new Date(ya, ma - 1, da).getTime();
+        }).slice(0, 10);
+    }, [allNetworkInvoices, dashboardLocationFilter]);
 
     const getRangeLabel = () => {
         if (dateRange === 'TODAY') return 'Today';
@@ -659,20 +735,22 @@ const App: React.FC = () => {
 
         return (
             <div className="bg-white p-4 rounded shadow mb-6 flex flex-col xl:flex-row gap-4 items-center">
-                <div className="relative w-full xl:w-1/3">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                        <svg className="h-5 w-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                    </span>
-                    <input
-                        type="text"
-                        placeholder="Search invoice #, name, mobile..."
-                        className="w-full border border-gray-300 rounded pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-300 text-black placeholder-black"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                </div>
+                {view !== 'DASHBOARD' && (
+                    <div className="relative w-full xl:w-1/3">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                            <svg className="h-5 w-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </span>
+                        <input
+                            type="text"
+                            placeholder={view === 'CUSTOMERS' ? "Search customer name, mobile, id..." : "Search invoice #, name, mobile..."}
+                            className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400 transition-all shadow-sm"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                )}
 
                 <div className="flex flex-col md:flex-row gap-2 items-center w-full xl:w-auto">
                     <select
@@ -1502,6 +1580,23 @@ const App: React.FC = () => {
                     </button>
                 </div>
 
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
+                    <div className="relative w-full">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </span>
+                        <input
+                            type="text"
+                            placeholder="Search items..."
+                            className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400 transition-all shadow-sm"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                </div>
+
                 <div className="bg-white rounded shadow overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
@@ -1512,27 +1607,29 @@ const App: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {(activeCompany?.items || []).map((item) => (
-                                    <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                                        <td className="p-4 font-bold text-gray-700">{item.name}</td>
-                                        <td className="p-4 text-right">
-                                            <button
-                                                onClick={() => { setEditingItem(item); setItemFormName(item.name); setIsItemModalOpen(true); }}
-                                                className="text-blue-600 hover:text-blue-800 font-bold mr-4 text-sm"
-                                            >
-                                                Edit
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteItem(item.id)}
-                                                className="text-red-500 hover:text-red-700 font-bold text-sm"
-                                            >
-                                                Delete
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {(activeCompany?.items || []).length === 0 && (
-                                    <tr><td colSpan={2} className="p-6 text-center text-gray-500">No items found.</td></tr>
+                                {(activeCompany?.items || [])
+                                    .filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                                    .map((item) => (
+                                        <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                                            <td className="p-4 font-bold text-gray-700">{item.name}</td>
+                                            <td className="p-4 text-right">
+                                                <button
+                                                    onClick={() => { setEditingItem(item); setItemFormName(item.name); setIsItemModalOpen(true); }}
+                                                    className="text-blue-600 hover:text-blue-800 font-bold mr-4 text-sm"
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteItem(item.id)}
+                                                    className="text-red-500 hover:text-red-700 font-bold text-sm"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                {(activeCompany?.items || []).filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                                    <tr><td colSpan={2} className="p-6 text-center text-gray-500">No items found matching your criteria.</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -1576,6 +1673,23 @@ const App: React.FC = () => {
                     </button>
                 </div>
 
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
+                    <div className="relative w-full">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </span>
+                        <input
+                            type="text"
+                            placeholder="Search shipment types..."
+                            className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400 transition-all shadow-sm"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                </div>
+
                 <div className="bg-white rounded shadow overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
@@ -1587,28 +1701,30 @@ const App: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {(activeCompany?.settings.shipmentTypes || []).map((type, idx) => (
-                                    <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
-                                        <td className="p-4 font-bold text-gray-700">{type.name}</td>
-                                        <td className="p-4 font-mono text-blue-600">{type.value.toFixed(2)}</td>
-                                        <td className="p-4 text-right">
-                                            <button
-                                                onClick={() => { setEditingShipmentType({ index: idx, type }); setShipmentTypeFormName(type.name); setShipmentTypeFormValue(type.value.toString()); setIsShipmentTypeModalOpen(true); }}
-                                                className="text-blue-600 hover:text-blue-800 font-bold mr-4 text-sm"
-                                            >
-                                                Edit
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteShipmentType(idx)}
-                                                className="text-red-500 hover:text-red-700 font-bold text-sm"
-                                            >
-                                                Delete
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {(activeCompany?.settings.shipmentTypes || []).length === 0 && (
-                                    <tr><td colSpan={3} className="p-6 text-center text-gray-500">No shipment types found.</td></tr>
+                                {(activeCompany?.settings.shipmentTypes || [])
+                                    .filter(type => type.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                                    .map((type, idx) => (
+                                        <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
+                                            <td className="p-4 font-bold text-gray-700">{type.name}</td>
+                                            <td className="p-4 font-mono text-blue-600">{type.value.toFixed(2)}</td>
+                                            <td className="p-4 text-right">
+                                                <button
+                                                    onClick={() => { setEditingShipmentType({ index: idx, type }); setShipmentTypeFormName(type.name); setShipmentTypeFormValue(type.value.toString()); setIsShipmentTypeModalOpen(true); }}
+                                                    className="text-blue-600 hover:text-blue-800 font-bold mr-4 text-sm"
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteShipmentType(idx)}
+                                                    className="text-red-500 hover:text-red-700 font-bold text-sm"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                {(activeCompany?.settings.shipmentTypes || []).filter(type => type.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                                    <tr><td colSpan={3} className="p-6 text-center text-gray-500">No shipment types found matching your criteria.</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -2438,7 +2554,7 @@ const App: React.FC = () => {
                             <input
                                 type="text"
                                 placeholder="Search company name, username, location..."
-                                className="w-full border border-gray-300 rounded pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400 transition-all shadow-sm"
                                 value={adminSearchQuery}
                                 onChange={(e) => setAdminSearchQuery(e.target.value)}
                             />
@@ -2711,11 +2827,11 @@ const App: React.FC = () => {
                         </div>
                         <div className="bg-white p-6 rounded shadow-sm border-l-4 border-purple-500">
                             <div className="text-gray-500 text-sm">Cash in Hand</div>
-                            <div className="text-3xl font-bold text-gray-800">SAR {stats.cashInHand.toFixed(2)}</div>
+                            <div className="text-3xl font-bold text-gray-800">SAR {allTimeStats.cashInHand.toFixed(2)}</div>
                         </div>
                         <div className="bg-white p-6 rounded shadow-sm border-l-4 border-teal-500">
                             <div className="text-gray-500 text-sm">Bank Balance</div>
-                            <div className="text-3xl font-bold text-gray-800">SAR {stats.bankBalance.toFixed(2)}</div>
+                            <div className="text-3xl font-bold text-gray-800">SAR {allTimeStats.bankBalance.toFixed(2)}</div>
                         </div>
                     </div>
 
@@ -2723,13 +2839,13 @@ const App: React.FC = () => {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                         {companyStatuses.map(statusSetting => (
                             <div key={statusSetting.id} className="bg-white p-4 rounded shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center hover:shadow-md transition">
-                                <div className="text-2xl font-bold text-blue-900">{statusCounts[statusSetting.name] || 0}</div>
+                                <div className="text-2xl font-bold text-blue-900">{allTimeStatusCounts[statusSetting.name] || 0}</div>
                                 <div className="text-xs text-gray-500 font-medium">{statusSetting.name}</div>
                             </div>
                         ))}
                     </div>
 
-                    <h3 className="font-bold text-gray-700 mb-4 text-lg">Recent Activity</h3>
+                    <h3 className="font-bold text-gray-700 mb-4 text-lg">Recent Activity (Last 10 Shipments)</h3>
                     <div className="bg-white rounded shadow-sm overflow-hidden border border-gray-100">
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm">
@@ -2740,10 +2856,11 @@ const App: React.FC = () => {
                                         <th className="p-3">Customer</th>
                                         <th className="p-3">Status</th>
                                         <th className="p-3 text-right">Amount</th>
+                                        <th className="p-3 text-center">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredInvoices.slice(0, 5).map((inv, idx) => (
+                                    {latest10Invoices.map((inv, idx) => (
                                         <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
                                             <td className="p-3 font-mono font-bold text-blue-800">{inv.invoiceNo}</td>
                                             <td className="p-3 text-gray-600">{inv.date}</td>
@@ -2754,15 +2871,29 @@ const App: React.FC = () => {
                                                 </span>
                                             </td>
                                             <td className="p-3 text-right font-bold text-gray-700">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                                            <td className="p-3 text-center">
+                                                <button
+                                                    onClick={() => {
+                                                        setCurrentInvoice(inv);
+                                                        updateView('PREVIEW_INVOICE');
+                                                    }}
+                                                    className="text-gray-500 hover:text-blue-600 p-1.5 rounded-lg hover:bg-blue-50 transition-all group"
+                                                    title="Print Invoice"
+                                                >
+                                                    <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                                    </svg>
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))}
-                                    {filteredInvoices.length === 0 && (
-                                        <tr><td colSpan={5} className="p-4 text-center text-gray-400">No activity found.</td></tr>
+                                    {latest10Invoices.length === 0 && (
+                                        <tr><td colSpan={6} className="p-4 text-center text-gray-400">No activity found.</td></tr>
                                     )}
                                 </tbody>
                             </table>
                         </div>
-                        {filteredInvoices.length > 0 && (
+                        {latest10Invoices.length > 0 && (
                             <div className="p-3 bg-gray-50 text-center border-t">
                                 <button onClick={() => updateView('INVOICES')} className="text-blue-600 text-xs font-bold hover:underline">View All Invoices &rarr;</button>
                             </div>
