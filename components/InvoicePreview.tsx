@@ -98,11 +98,11 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
                         </div>
 
                         {/* Invoice Meta Bar */}
-                        <div className="w-full text-white flex justify-between items-center px-4 py-1 mb-1 text-xs font-bold" style={{ backgroundColor: brandColor }}>
-                            <div>DATE: {data.date}</div>
-                            <div className="uppercase">SHIPMENT TYPE: {data.shipmentType}</div>
-                            <div className="uppercase">PAYMENT: {data.paymentMode || 'CASH'}</div>
-                            <div className="text-right">INV NO: {data.invoiceNo}</div>
+                        <div className="w-full text-white flex justify-between items-center px-4 py-1 mb-1 text-[10px] font-bold" style={{ backgroundColor: brandColor }}>
+                            <div>DATE | التاريخ: {data.date}</div>
+                            <div className="uppercase">TYPE | النوع: {data.shipmentType}</div>
+                            <div className="uppercase">PAYMENT | الدفع: {data.paymentMode || 'CASH'}</div>
+                            <div className="text-right">INV NO | رقم الفاتورة: {data.invoiceNo}</div>
                         </div>
 
 
@@ -110,7 +110,7 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
                         <div className="flex border-b-2 pb-1 mb-1" style={{ borderColor: brandColor }}>
                             {/* Shipper */}
                             <div className="w-1/2 pr-2 border-r border-gray-300">
-                                <div className="text-white inline-block px-2 py-0.5 rounded-sm mb-1.5 font-bold text-[10px]" style={{ backgroundColor: brandColor }}>SHIPPER</div>
+                                <div className="text-white inline-block px-2 py-0.5 rounded-sm mb-1.5 font-bold text-[10px]" style={{ backgroundColor: brandColor }}>SHIPPER | الشاحن</div>
                                 <div className="grid grid-cols-[80px_1fr] gap-y-0.5 text-[11px] font-semibold">
                                     <div>NAME</div><div>: {data.shipper.name}</div>
                                     <div>ID NO</div><div>: {data.shipper.idNo}</div>
@@ -127,7 +127,7 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
 
                             {/* Consignee */}
                             <div className="w-1/2 pl-2 relative">
-                                <div className="text-white inline-block px-2 py-0.5 rounded-sm mb-1.5 font-bold text-[10px]" style={{ backgroundColor: brandColor }}>CONSIGNEE</div>
+                                <div className="text-white inline-block px-2 py-0.5 rounded-sm mb-1.5 font-bold text-[10px]" style={{ backgroundColor: brandColor }}>CONSIGNEE | المرسل إليه</div>
 
                                 {/* Consignee Top Right Box */}
                                 <div className="absolute top-0 right-0 border border-black text-[10px] text-center w-38">
@@ -158,7 +158,7 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
                         {/* Cargo Items Table */}
                         <div className="mt-2">
                             <div className="flex justify-between items-end mb-0.5">
-                                <div className="text-white px-2 py-0.5 rounded-t-sm text-[10px] font-bold" style={{ backgroundColor: brandColor }}>CARGO ITEMS</div>
+                                <div className="text-white px-2 py-0.5 rounded-t-sm text-[10px] font-bold" style={{ backgroundColor: brandColor }}>CARGO ITEMS | مواد الشحن</div>
                                 <div className="bg-gray-400 text-black px-2 py-0.5 rounded-full text-[10px] font-bold">TOTAL WEIGHT: {data.shipper.weight.toFixed(3)} KG</div>
                             </div>
 
@@ -281,6 +281,10 @@ const InvoicePreview: React.FC<InvoicePreviewProps> = ({ data, settings, onBack 
             ))}
             <style>{`
         @media print {
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
             body { 
                 background: white; 
             }

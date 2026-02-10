@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction, ItemMaster, ShipmentStatusSetting, InvoiceItem, ShipmentType, StatusHistoryItem } from './types';
+import { ViewState, InvoiceData, Company, AppSettings, ShipmentStatus, FinancialAccount, FinancialTransaction, ItemMaster, ShipmentStatusSetting, InvoiceItem, ShipmentType, StatusHistoryItem, BulkStatusEvent } from './types';
 import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
 import { fetchCompanies, persistAllCompanies, formatDate, getOneYearFromNow, DEFAULT_TC_HEADER, DEFAULT_TC_ENGLISH, DEFAULT_TC_ARABIC, DEFAULT_BRAND_COLOR, DEFAULT_ACCOUNTS, DEFAULT_ITEMS, DEFAULT_SHIPMENT_STATUS_SETTINGS } from './services/dataService';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 // Extended Invoice Type for Dashboard Display
 type DashboardInvoice = InvoiceData & {
@@ -28,34 +30,124 @@ type AggregatedCustomer = {
 const StatusHistoryModal = ({ invoice, onClose }: { invoice: InvoiceData, onClose: () => void }) => {
     if (!invoice) return null;
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
-            <div className="bg-white p-6 rounded shadow-lg w-96 max-h-[80vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-4 border-b pb-2">
-                    <h3 className="font-bold text-lg text-gray-800">Status History</h3>
-                    <button onClick={onClose} className="text-gray-500 hover:text-red-600 font-bold text-xl">&times;</button>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in no-print">
+            <div className="bg-white p-8 rounded-2xl shadow-2xl w-[500px] max-h-[90vh] overflow-y-auto transform transition-all">
+                <div className="flex justify-between items-center mb-6 border-b pb-4">
+                    <div>
+                        <h3 className="font-black text-2xl text-gray-900 tracking-tight">Shipment Trace</h3>
+                        <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Ref: {invoice.invoiceNo}</p>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-full">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
                 </div>
-                <div className="mb-4 text-sm bg-gray-50 p-2 rounded">
-                    <p><strong>Invoice #:</strong> <span className="font-mono">{invoice.invoiceNo}</span></p>
-                    <p><strong>Shipper:</strong> {invoice.shipper.name}</p>
+
+                <div className="mb-8 flex gap-4">
+                    <div className="flex-1 bg-blue-50 p-4 rounded-xl border border-blue-100">
+                        <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest mb-1">Customer</p>
+                        <p className="font-bold text-gray-900 truncate">{invoice.shipper.name}</p>
+                    </div>
+                    <div className="flex-1 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                        <p className="text-[10px] text-gray-600 font-black uppercase tracking-widest mb-1">Current Status</p>
+                        <p className="font-bold text-gray-900">{invoice.status || 'Received'}</p>
+                    </div>
                 </div>
-                <div className="space-y-4 relative border-l-2 border-blue-200 ml-2 pl-6 py-2">
+
+                <div className="space-y-0 relative border-l-2 border-gray-100 ml-4 pl-8 py-2">
                     {(invoice.statusHistory || []).slice().reverse().map((item, idx) => (
-                        <div key={idx} className="relative">
-                            <div className={`absolute -left-[31px] top-1 h-4 w-4 rounded-full border-2 border-white ${idx === 0 ? 'bg-blue-600' : 'bg-gray-400'}`}></div>
-                            <p className="font-bold text-sm text-gray-800">{item.status}</p>
-                            <p className="text-xs text-gray-500">{new Date(item.timestamp).toLocaleString()}</p>
-                            {item.remark && <p className="text-xs text-blue-600 mt-1 italic font-medium">"{item.remark}"</p>}
+                        <div key={idx} className="relative pb-8 last:pb-0">
+                            <div className={`absolute -left-[41px] top-0 h-5 w-5 rounded-full border-4 border-white shadow-sm ${idx === 0 ? 'bg-blue-600 animate-pulse' : 'bg-gray-300'}`}></div>
+                            <div className="flex justify-between items-start">
+                                <p className={`font-black uppercase tracking-tight ${idx === 0 ? 'text-blue-900 text-lg' : 'text-gray-700 text-sm'}`}>{item.status}</p>
+                                <span className="text-[10px] text-gray-400 font-bold font-mono">{new Date(item.timestamp).toLocaleDateString()}</span>
+                            </div>
+                            <div className="mt-1 space-y-1">
+                                <p className="text-xs text-gray-500 font-medium flex items-center gap-2">
+                                    <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                                    {item.action || 'Status Updated'} by <span className="text-gray-900 font-bold">{item.updatedBy || 'System'}</span>
+                                </p>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-none bg-gray-50 inline-block px-1.5 py-0.5 rounded border border-gray-100">@{item.location || 'HQ Office'}</p>
+                            </div>
+                            {item.remark && (
+                                <div className="mt-3 bg-blue-50/50 p-3 rounded-lg border border-blue-100/50 relative">
+                                    <svg className="absolute -left-2 top-2 w-4 h-4 text-blue-200 fill-current" viewBox="0 0 24 24"><path d="M14.017 21L14.017 18C14.017 16.8954 13.1216 16 12.017 16H3.01697C1.9124 16 1.01697 16.8954 1.01697 18V21M14.017 21H1.01697M14.017 21C14.017 22.1046 13.1216 23 12.017 23H3.01697C1.9124 23 1.01697 22.1046 1.01697 21M19 13L23 9M19 13L15 9M19 13V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                    <p className="text-xs text-blue-800 font-medium italic">"{item.remark}"</p>
+                                </div>
+                            )}
                         </div>
                     ))}
-                    {(!invoice.statusHistory || invoice.statusHistory.length === 0) && (
-                        <div className="relative">
-                            <div className="absolute -left-[31px] top-1 h-4 w-4 rounded-full bg-gray-400 border-2 border-white"></div>
-                            <p className="font-bold text-sm text-gray-800">{invoice.status || 'Received'}</p>
-                            <p className="text-xs text-gray-500 italic">Initial Record</p>
-                        </div>
-                    )}
                 </div>
-                <button onClick={onClose} className="mt-6 w-full bg-gray-200 text-gray-700 py-2 rounded hover:bg-gray-300 font-medium">Close</button>
+
+                <div className="mt-10 flex gap-4">
+                    <button onClick={() => window.print()} className="flex-1 bg-gray-900 text-white py-3 rounded-xl hover:bg-black font-black uppercase tracking-widest text-xs transition-all shadow-lg flex items-center justify-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                        Print History Report
+                    </button>
+                    <button onClick={onClose} className="bg-gray-100 text-gray-600 px-6 py-3 rounded-xl hover:bg-gray-200 font-bold text-xs uppercase transition-all tracking-widest">Close</button>
+                </div>
+            </div>
+            {/* Hidden Print View */}
+            <div className="print-only hidden p-10 font-sans">
+                <style>{`
+                    @media print {
+                        .no-print { display: none !important; }
+                        .print-only { display: block !important; }
+                        body { background: white; }
+                    }
+                `}</style>
+                <div className="flex justify-between items-start border-b-2 border-gray-900 pb-6 mb-8">
+                    <div>
+                        <h1 className="text-3xl font-black text-gray-900 uppercase">Shipment Trace Report</h1>
+                        <p className="text-gray-500 font-bold">INV NO: {invoice.invoiceNo}</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-gray-600 font-bold uppercase text-xs">Generated On</p>
+                        <p className="font-mono text-sm">{new Date().toLocaleString()}</p>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8 mb-10">
+                    <div className="border border-gray-200 p-4 rounded">
+                        <h4 className="text-[10px] font-black uppercase text-gray-400 mb-2">Shipper Details</h4>
+                        <p className="font-bold text-lg">{invoice.shipper.name}</p>
+                        <p className="text-sm text-gray-600">{invoice.shipper.tel}</p>
+                    </div>
+                    <div className="border border-gray-200 p-4 rounded">
+                        <h4 className="text-[10px] font-black uppercase text-gray-400 mb-2">Summary</h4>
+                        <p className="text-sm font-bold">Total Items: {invoice.cargoItems.length}</p>
+                        <p className="text-sm font-bold">Net Total: SAR {invoice.financials.netTotal.toFixed(2)}</p>
+                    </div>
+                </div>
+
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="bg-gray-900 text-white uppercase text-[10px] font-black italic tracking-widest">
+                            <th className="p-3">Step</th>
+                            <th className="p-3">Date & Time</th>
+                            <th className="p-3">Status</th>
+                            <th className="p-3">Location</th>
+                            <th className="p-3">Updated By</th>
+                            <th className="p-3">Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {(invoice.statusHistory || []).map((item, idx) => (
+                            <tr key={idx} className="border-b border-gray-100 text-xs">
+                                <td className="p-3 font-bold text-gray-400">{idx + 1}</td>
+                                <td className="p-3 font-mono">{new Date(item.timestamp).toLocaleString()}</td>
+                                <td className="p-3 font-black uppercase">{item.status}</td>
+                                <td className="p-3 font-bold">{item.location || 'HQ'}</td>
+                                <td className="p-3">{item.updatedBy || 'System'}</td>
+                                <td className="p-3 italic text-gray-600">{item.remark || '-'}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+
+                <div className="mt-20 flex justify-between border-t pt-10 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    <p>QovoZ Logistics Management - Internal Document</p>
+                    <p>Page 1 of 1</p>
+                </div>
             </div>
         </div>
     );
@@ -111,6 +203,7 @@ const App: React.FC = () => {
 
     // Status History Modal State
     const [viewingHistoryInvoice, setViewingHistoryInvoice] = useState<InvoiceData | null>(null);
+    const [selectedBulkEvent, setSelectedBulkEvent] = useState<BulkStatusEvent | null>(null);
 
     // Customer Management State
     const [selectedCustomer, setSelectedCustomer] = useState<AggregatedCustomer | null>(null);
@@ -153,7 +246,13 @@ const App: React.FC = () => {
         if (savedView && savedView !== 'LOGIN') {
             // Check if we have enough context to restore the view
             if (savedIsSuperAdmin || savedCompanyId) {
-                setView(savedView);
+                // Safeguard: Don't restore views that depend on volatile state (like individual invoices/events)
+                const stateDependentViews: ViewState[] = ['PREVIEW_INVOICE', 'CREATE_INVOICE', 'BULK_HISTORY_DETAIL'];
+                if (stateDependentViews.includes(savedView)) {
+                    setView('DASHBOARD');
+                } else {
+                    setView(savedView);
+                }
             }
         }
     }, []);
@@ -481,10 +580,7 @@ const App: React.FC = () => {
         return counts;
     }, [allNetworkInvoices, dashboardLocationFilter]);
 
-    const stats = useMemo(() => {
-        const totalShipments = filteredInvoices.length;
-        const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
-
+    const filteredTransactions = useMemo<FinancialTransaction[]>(() => {
         let transactions: FinancialTransaction[] = [];
         if (dashboardLocationFilter === 'ALL') {
             transactions = relatedCompanies.flatMap(c => c.financialTransactions);
@@ -493,12 +589,7 @@ const App: React.FC = () => {
             transactions = target ? target.financialTransactions : [];
         }
 
-        // Filter transactions by date range
-        const filteredTransactions = transactions.filter(tx => {
-            // Check if it's an income transaction from an invoice (linked via referenceId)
-            // If it is, we use the invoice's date filtering which is already accurate.
-            // But for manual transactions and consistent filtering, we need to check the tx.date.
-
+        return transactions.filter(tx => {
             const [year, month, day] = tx.date.split('-').map(Number);
             const txDate = new Date(year, month - 1, day);
 
@@ -530,7 +621,12 @@ const App: React.FC = () => {
                 return txDate >= start && txDate <= end;
             }
             return true;
-        });
+        }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    }, [relatedCompanies, dashboardLocationFilter, dateRange, customStart, customEnd]);
+
+    const stats = useMemo(() => {
+        const totalShipments = filteredInvoices.length;
+        const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.financials.netTotal, 0);
 
         let cashInHand = 0;
         let bankBalance = 0;
@@ -549,7 +645,7 @@ const App: React.FC = () => {
         });
 
         return { totalShipments, totalRevenue, totalExpenses, cashInHand, bankBalance };
-    }, [filteredInvoices, relatedCompanies, dashboardLocationFilter, dateRange, customStart, customEnd]);
+    }, [filteredInvoices, filteredTransactions]);
 
     const allTimeStats = useMemo(() => {
         let companiesToStats = relatedCompanies;
@@ -583,6 +679,112 @@ const App: React.FC = () => {
             return new Date(yb, mb - 1, db).getTime() - new Date(ya, ma - 1, da).getTime();
         }).slice(0, 10);
     }, [allNetworkInvoices, dashboardLocationFilter]);
+
+    const exportToExcel = async (type: 'INVOICES' | 'FINANCE') => {
+        let titleText = "";
+        let dateRangeText = "";
+        let headers: string[] = [];
+        let rows: any[] = [];
+        let filename = "";
+
+        const now = new Date().toISOString().split('T')[0];
+
+        if (type === 'INVOICES') {
+            filename = `Invoices_Export_${now}.xlsx`;
+            titleText = `Invoices Report - ${activeCompany?.settings.companyName || 'QovoZ'}`;
+            dateRangeText = `Period: ${getRangeLabel()}`;
+            headers = ['Invoice #', 'Location', 'Date', 'Shipper Name', 'Mobile', 'Amount', 'Status'];
+            rows = filteredInvoices.map(inv => [
+                inv.invoiceNo,
+                inv._locationName,
+                inv.date,
+                inv.shipper.name,
+                inv.shipper.tel,
+                Number(inv.financials.netTotal.toFixed(2)),
+                inv.status || 'Received'
+            ]);
+        } else if (type === 'FINANCE') {
+            filename = `Financial_Report_${now}.xlsx`;
+            titleText = `Financial Report - ${activeCompany?.settings.companyName || 'QovoZ'}`;
+            dateRangeText = `Period: ${getRangeLabel()}`;
+            headers = ['Date', 'Description', 'Account', 'Mode', 'Amount (SAR)'];
+            rows = filteredTransactions.map(tx => [
+                tx.date,
+                tx.description,
+                (relatedCompanies.flatMap(c => c.financialAccounts).find(a => a.id === tx.accountId)?.name) || tx.accountId,
+                tx.paymentMode || 'CASH',
+                Number(tx.amount.toFixed(2))
+            ]);
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Report');
+
+        // Title row (merged)
+        const titleRow = worksheet.addRow([titleText]);
+        worksheet.mergeCells(1, 1, 1, headers.length);
+        titleRow.font = { name: 'Arial', size: 16, bold: true };
+        titleRow.alignment = { vertical: 'middle', horizontal: 'center' };
+        titleRow.height = 30;
+
+        // Date range row (merged)
+        const dateRangeRow = worksheet.addRow([dateRangeText]);
+        worksheet.mergeCells(2, 1, 2, headers.length);
+        dateRangeRow.font = { name: 'Arial', size: 10, color: { argb: 'FF666666' } };
+        dateRangeRow.alignment = { vertical: 'middle', horizontal: 'center' };
+        dateRangeRow.height = 20;
+
+        // Empty row for spacing
+        worksheet.addRow([]);
+
+        // Headers row
+        const headerRow = worksheet.addRow(headers);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF1E3A8A' } // blue-900
+        };
+        headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+        // Add borders to headers
+        headerRow.eachCell((cell) => {
+            cell.border = {
+                top: { style: 'thin' },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+            };
+        });
+
+        // Add data rows
+        rows.forEach(rowData => {
+            const row = worksheet.addRow(rowData);
+            row.eachCell((cell) => {
+                cell.border = {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
+            });
+        });
+
+        // Auto-width columns
+        worksheet.columns.forEach(column => {
+            let maxLen = 0;
+            column.eachCell!({ includeEmpty: true }, (cell: ExcelJS.Cell) => {
+                const value = cell.value;
+                const len = value ? value.toString().length : 0;
+                if (len > maxLen) maxLen = len;
+            });
+            column.width = maxLen < 10 ? 10 : maxLen + 2;
+        });
+
+        // Generate buffer and save
+        const buffer = await workbook.xlsx.writeBuffer();
+        saveAs(new Blob([buffer]), filename);
+    };
 
     const getRangeLabel = () => {
         if (dateRange === 'TODAY') return 'Today';
@@ -1252,18 +1454,29 @@ const App: React.FC = () => {
             return [...currentItems, ...newItemsToAdd];
         };
 
+        const historyItem: StatusHistoryItem = {
+            status: data.status || 'Received',
+            timestamp: new Date().toISOString(),
+            remark: data.statusHistory?.length ? 'Modified' : 'Created',
+            updatedBy: username,
+            location: activeCompany?.settings.location || 'HQ',
+            action: data.statusHistory?.length ? 'Invoice Modified' : 'Invoice Created'
+        };
+
+        const dataWithHistory = {
+            ...data,
+            statusHistory: [...(data.statusHistory || []), historyItem]
+        };
+
         setCompanies(prev => {
-            // 1. Try to find and update existing invoice in ANY company
             const nextCompanies = prev.map(c => {
                 const existingIndex = c.invoices.findIndex(inv => inv.invoiceNo === data.invoiceNo);
                 if (existingIndex >= 0) {
                     foundAndUpdated = true;
                     const updatedInvoices = [...c.invoices];
-                    updatedInvoices[existingIndex] = data;
+                    updatedInvoices[existingIndex] = dataWithHistory;
 
-                    // --- FINANCE LINKING (Re-write) ---
                     let updatedTransactions = (c.financialTransactions || []).filter(t => t.referenceId !== data.invoiceNo);
-
                     const timestamp = new Date().toISOString();
                     const date = new Date().toISOString().split('T')[0];
 
@@ -1309,11 +1522,8 @@ const App: React.FC = () => {
                 return c;
             });
 
-            if (foundAndUpdated) {
-                return nextCompanies;
-            }
+            if (foundAndUpdated) return nextCompanies;
 
-            // 2. If new, add to active company
             if (activeCompanyId) {
                 return prev.map(c => {
                     if (c.id === activeCompanyId) {
@@ -1323,48 +1533,18 @@ const App: React.FC = () => {
 
                         if (data.paymentMode === 'SPLIT' && data.splitDetails) {
                             if (data.splitDetails.cash > 0) {
-                                newTransactions.push({
-                                    id: `tx_${data.invoiceNo}_cash_${Date.now()}`,
-                                    date,
-                                    timestamp,
-                                    accountId: 'acc_sales',
-                                    type: 'INCOME',
-                                    amount: data.splitDetails.cash,
-                                    description: `Invoice ${data.invoiceNo} (Cash Split)`,
-                                    referenceId: data.invoiceNo,
-                                    paymentMode: 'CASH'
-                                });
+                                newTransactions.push({ id: `tx_${data.invoiceNo}_cash_${Date.now()}`, date, timestamp, accountId: 'acc_sales', type: 'INCOME', amount: data.splitDetails.cash, description: `Invoice ${data.invoiceNo} (Cash Split)`, referenceId: data.invoiceNo, paymentMode: 'CASH' });
                             }
                             if (data.splitDetails.bank > 0) {
-                                newTransactions.push({
-                                    id: `tx_${data.invoiceNo}_bank_${Date.now()}`,
-                                    date,
-                                    timestamp,
-                                    accountId: 'acc_sales',
-                                    type: 'INCOME',
-                                    amount: data.splitDetails.bank,
-                                    description: `Invoice ${data.invoiceNo} (Bank Split)`,
-                                    referenceId: data.invoiceNo,
-                                    paymentMode: 'BANK'
-                                });
+                                newTransactions.push({ id: `tx_${data.invoiceNo}_bank_${Date.now()}`, date, timestamp, accountId: 'acc_sales', type: 'INCOME', amount: data.splitDetails.bank, description: `Invoice ${data.invoiceNo} (Bank Split)`, referenceId: data.invoiceNo, paymentMode: 'BANK' });
                             }
                         } else {
-                            newTransactions.push({
-                                id: `tx_${data.invoiceNo}_${Date.now()}`,
-                                date,
-                                timestamp,
-                                accountId: 'acc_sales',
-                                type: 'INCOME',
-                                amount: data.financials.netTotal,
-                                description: `Invoice ${data.invoiceNo}`,
-                                referenceId: data.invoiceNo,
-                                paymentMode: (data.paymentMode as 'CASH' | 'BANK') || 'CASH'
-                            });
+                            newTransactions.push({ id: `tx_${data.invoiceNo}_${Date.now()}`, date, timestamp, accountId: 'acc_sales', type: 'INCOME', amount: data.financials.netTotal, description: `Invoice ${data.invoiceNo}`, referenceId: data.invoiceNo, paymentMode: (data.paymentMode as 'CASH' | 'BANK') || 'CASH' });
                         }
 
                         return {
                             ...c,
-                            invoices: [data, ...c.invoices],
+                            invoices: [dataWithHistory, ...c.invoices],
                             financialTransactions: [...newTransactions, ...(c.financialTransactions || [])],
                             items: getUpdatedItems(c.items, data.cargoItems)
                         };
@@ -1372,7 +1552,6 @@ const App: React.FC = () => {
                     return c;
                 });
             }
-
             return prev;
         });
 
@@ -1574,9 +1753,12 @@ const App: React.FC = () => {
                     <h2 className="text-2xl font-bold text-gray-800">Item Master</h2>
                     <button
                         onClick={() => { setEditingItem(null); setItemFormName(''); setIsItemModalOpen(true); }}
-                        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 font-bold"
+                        className="bg-blue-600 text-white p-2.5 rounded-xl shadow-lg hover:bg-blue-700 transition-all transform hover:scale-105"
+                        title="Add New Item"
                     >
-                        + Add New Item
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                        </svg>
                     </button>
                 </div>
 
@@ -1597,39 +1779,47 @@ const App: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="bg-white rounded shadow overflow-hidden">
+                <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                            <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
+                            <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-black tracking-widest">
                                 <tr>
-                                    <th className="p-4">Item Name</th>
-                                    <th className="p-4 text-right">Actions</th>
+                                    <th className="p-4 border-b">Item Name</th>
+                                    <th className="p-4 border-b text-right">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y divide-gray-50">
                                 {(activeCompany?.items || [])
                                     .filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
                                     .map((item) => (
-                                        <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                                            <td className="p-4 font-bold text-gray-700">{item.name}</td>
+                                        <tr key={item.id} className="hover:bg-blue-50/50 transition-colors">
+                                            <td className="p-4 font-bold text-gray-800">{item.name}</td>
                                             <td className="p-4 text-right">
-                                                <button
-                                                    onClick={() => { setEditingItem(item); setItemFormName(item.name); setIsItemModalOpen(true); }}
-                                                    className="text-blue-600 hover:text-blue-800 font-bold mr-4 text-sm"
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteItem(item.id)}
-                                                    className="text-red-500 hover:text-red-700 font-bold text-sm"
-                                                >
-                                                    Delete
-                                                </button>
+                                                <div className="flex justify-end gap-2">
+                                                    <button
+                                                        onClick={() => { setEditingItem(item); setItemFormName(item.name); setIsItemModalOpen(true); }}
+                                                        className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+                                                        title="Edit"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                        </svg>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteItem(item.id)}
+                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                        title="Delete"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
                                 {(activeCompany?.items || []).filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
-                                    <tr><td colSpan={2} className="p-6 text-center text-gray-500">No items found matching your criteria.</td></tr>
+                                    <tr><td colSpan={2} className="p-12 text-center text-gray-400 font-medium italic">No items found matching your criteria.</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -1667,9 +1857,12 @@ const App: React.FC = () => {
                     <h2 className="text-2xl font-bold text-gray-800">Shipment Types</h2>
                     <button
                         onClick={() => { setEditingShipmentType(null); setShipmentTypeFormName(''); setShipmentTypeFormValue(''); setIsShipmentTypeModalOpen(true); }}
-                        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 font-bold"
+                        className="bg-blue-600 text-white p-2.5 rounded-xl shadow-lg hover:bg-blue-700 transition-all transform hover:scale-105"
+                        title="Add New Shipment Type"
                     >
-                        + Add New Type
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                        </svg>
                     </button>
                 </div>
 
@@ -1690,41 +1883,49 @@ const App: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="bg-white rounded shadow overflow-hidden">
+                <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                            <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
+                            <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-black tracking-widest">
                                 <tr>
-                                    <th className="p-4">Type Name</th>
-                                    <th className="p-4">Rate (SAR)</th>
-                                    <th className="p-4 text-right">Actions</th>
+                                    <th className="p-4 border-b">Type Name</th>
+                                    <th className="p-4 border-b">Rate (SAR)</th>
+                                    <th className="p-4 border-b text-right">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y divide-gray-50">
                                 {(activeCompany?.settings.shipmentTypes || [])
                                     .filter(type => type.name.toLowerCase().includes(searchQuery.toLowerCase()))
                                     .map((type, idx) => (
-                                        <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
-                                            <td className="p-4 font-bold text-gray-700">{type.name}</td>
-                                            <td className="p-4 font-mono text-blue-600">{type.value.toFixed(2)}</td>
+                                        <tr key={idx} className="hover:bg-blue-50/50 transition-colors">
+                                            <td className="p-4 font-bold text-gray-800">{type.name}</td>
+                                            <td className="p-4 font-mono text-blue-600 font-bold">{type.value.toFixed(2)}</td>
                                             <td className="p-4 text-right">
-                                                <button
-                                                    onClick={() => { setEditingShipmentType({ index: idx, type }); setShipmentTypeFormName(type.name); setShipmentTypeFormValue(type.value.toString()); setIsShipmentTypeModalOpen(true); }}
-                                                    className="text-blue-600 hover:text-blue-800 font-bold mr-4 text-sm"
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteShipmentType(idx)}
-                                                    className="text-red-500 hover:text-red-700 font-bold text-sm"
-                                                >
-                                                    Delete
-                                                </button>
+                                                <div className="flex justify-end gap-2">
+                                                    <button
+                                                        onClick={() => { setEditingShipmentType({ index: idx, type }); setShipmentTypeFormName(type.name); setShipmentTypeFormValue(type.value.toString()); setIsShipmentTypeModalOpen(true); }}
+                                                        className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+                                                        title="Edit"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                        </svg>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteShipmentType(idx)}
+                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                        title="Delete"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
                                 {(activeCompany?.settings.shipmentTypes || []).filter(type => type.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
-                                    <tr><td colSpan={3} className="p-6 text-center text-gray-500">No shipment types found matching your criteria.</td></tr>
+                                    <tr><td colSpan={3} className="p-12 text-center text-gray-400 font-medium italic">No shipment types found matching your criteria.</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -1776,22 +1977,22 @@ const App: React.FC = () => {
             <main className="max-w-7xl mx-auto p-6">
                 <h2 className="text-2xl font-bold text-gray-800 mb-6">Customers</h2>
                 {renderFilterBar()}
-                <div className="bg-white rounded shadow overflow-hidden">
+                <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-100 text-gray-600 font-bold">
+                            <thead className="bg-gray-50 text-gray-600 font-bold uppercase text-[10px] tracking-widest">
                                 <tr>
-                                    <th className="p-4">Name</th>
-                                    <th className="p-4">Mobile</th>
-                                    <th className="p-4">ID No</th>
-                                    <th className="p-4">Location</th>
-                                    <th className="p-4 text-center">Shipments</th>
-                                    <th className="p-4 text-right">Actions</th>
+                                    <th className="p-4 border-b">Name</th>
+                                    <th className="p-4 border-b">Mobile</th>
+                                    <th className="p-4 border-b">ID No</th>
+                                    <th className="p-4 border-b">Location</th>
+                                    <th className="p-4 border-b text-center">Shipments</th>
+                                    <th className="p-4 border-b text-right">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y divide-gray-50">
                                 {customers.map((c) => (
-                                    <tr key={c.key} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => { setSelectedCustomer(c); updateView('CUSTOMER_DETAIL'); }}>
+                                    <tr key={c.key} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedCustomer(c); updateView('CUSTOMER_DETAIL'); }}>
                                         <td className="p-4 font-bold text-blue-900">{c.name}</td>
                                         <td className="p-4">{c.mobile}</td>
                                         <td className="p-4 font-mono">{c.idNo}</td>
@@ -1800,9 +2001,12 @@ const App: React.FC = () => {
                                         <td className="p-4 text-right">
                                             <button
                                                 onClick={(e) => handleEditCustomerClick(e, c)}
-                                                className="text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-100 font-bold text-xs"
+                                                className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors inline-flex items-center justify-center"
+                                                title="Edit Details"
                                             >
-                                                Edit Details
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                </svg>
                                             </button>
                                         </td>
                                     </tr>
@@ -1916,26 +2120,50 @@ const App: React.FC = () => {
     };
 
     const handleBulkStatusUpdate = () => {
-        if (!activeCompanyId || selectedInvoiceNos.length === 0 || !targetBulkStatus) return;
+        if (selectedInvoiceNos.length === 0 || !targetBulkStatus) return;
+
+        const timestamp = new Date().toISOString();
+        const eventId = `evt_${Date.now()}`;
+        const location = activeCompany?.settings.location || 'HQ';
+
+        const newBulkEvent: BulkStatusEvent = {
+            id: eventId,
+            timestamp,
+            status: targetBulkStatus,
+            affectedInvoices: [...selectedInvoiceNos],
+            updatedBy: username,
+            location,
+            remark: bulkStatusRemark
+        };
 
         setCompanies((prev: Company[]) => prev.map((c: Company) => {
-            if (c.id === activeCompanyId) {
-                const updatedInvoices = c.invoices.map((inv: InvoiceData) => {
-                    if (selectedInvoiceNos.includes(inv.invoiceNo)) {
-                        const newHistoryItem: StatusHistoryItem = {
-                            status: targetBulkStatus,
-                            timestamp: new Date().toISOString(),
-                            remark: bulkStatusRemark || 'Bulk updated'
-                        };
-                        return {
-                            ...inv,
-                            status: targetBulkStatus,
-                            statusHistory: [...(inv.statusHistory || []), newHistoryItem]
-                        };
-                    }
-                    return inv;
-                });
-                return { ...c, invoices: updatedInvoices };
+            let companyModified = false;
+            const updatedInvoices = c.invoices.map((inv: InvoiceData) => {
+                if (selectedInvoiceNos.includes(inv.invoiceNo)) {
+                    companyModified = true;
+                    const newHistoryItem: StatusHistoryItem = {
+                        status: targetBulkStatus,
+                        timestamp,
+                        remark: bulkStatusRemark || 'Bulk updated',
+                        updatedBy: username,
+                        location,
+                        action: 'Bulk Status Update'
+                    };
+                    return {
+                        ...inv,
+                        status: targetBulkStatus,
+                        statusHistory: [...(inv.statusHistory || []), newHistoryItem]
+                    };
+                }
+                return inv;
+            });
+
+            if (companyModified) {
+                return {
+                    ...c,
+                    invoices: updatedInvoices,
+                    bulkStatusEvents: [newBulkEvent, ...(c.bulkStatusEvents || [])]
+                };
             }
             return c;
         }));
@@ -1943,7 +2171,6 @@ const App: React.FC = () => {
         setIsBulkModalOpen(false);
         setSelectedInvoiceNos([]);
         setBulkStatusRemark('');
-        updateView('INVOICES');
     };
 
     const renderBulkStatusModal = () => {
@@ -2019,6 +2246,7 @@ const App: React.FC = () => {
             {renderHeader()}
             {renderSidebar()}
             {renderBulkStatusModal()}
+            {renderHistoryModal()}
             <main className="max-w-7xl mx-auto p-6">
                 <div className="flex justify-between items-center mb-6">
                     <div>
@@ -2029,6 +2257,14 @@ const App: React.FC = () => {
                         {selectedInvoiceNos.length > 0 && (
                             <button
                                 onClick={() => {
+                                    const selectedShipments = filteredInvoices.filter(inv => selectedInvoiceNos.includes(inv.invoiceNo));
+                                    const uniqueStatuses = Array.from(new Set(selectedShipments.map(inv => inv.status || 'Received')));
+
+                                    if (uniqueStatuses.length > 1) {
+                                        alert("Please select shipments with the same status to modify simultaneously.");
+                                        return;
+                                    }
+
                                     setTargetBulkStatus(activeCompany?.settings.shipmentStatusSettings?.[0]?.name || 'Received');
                                     setBulkStatusRemark('');
                                     setIsBulkModalOpen(true);
@@ -2039,7 +2275,10 @@ const App: React.FC = () => {
                                 <span className="text-blue-300">→</span>
                             </button>
                         )}
-                        <button onClick={() => updateView('DASHBOARD')} className="bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-xl shadow-sm hover:bg-gray-50 font-bold transition-all">Back</button>
+                        <button onClick={() => updateView('BULK_HISTORY')} className="bg-white border border-gray-200 text-gray-700 p-2.5 rounded-xl shadow-sm hover:bg-gray-50 transition-all" title="Bulk History Trace">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </button>
+                        <button onClick={() => updateView('DASHBOARD')} className="bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-xl shadow-sm hover:bg-gray-50 font-bold transition-all">Dashboard</button>
                     </div>
                 </div>
 
@@ -2099,7 +2338,11 @@ const App: React.FC = () => {
                                         </td>
                                         <td className="p-4 border-b text-right font-bold text-gray-900">SAR {inv.financials.netTotal.toFixed(2)}</td>
                                         <td className="p-4 border-b">
-                                            <span className={`px-2 py-0.5 rounded-[4px] text-[9px] uppercase font-black tracking-widest ${getStatusBadgeStyles(inv.status || 'Received')}`}>
+                                            <span
+                                                onClick={() => setViewingHistoryInvoice(inv)}
+                                                className={`px-2 py-0.5 rounded-[4px] text-[9px] uppercase font-black tracking-widest cursor-pointer hover:opacity-80 transition-opacity ${getStatusBadgeStyles(inv.status || 'Received')}`}
+                                                title="Click to Trace Shipment"
+                                            >
                                                 {inv.status || 'Received'}
                                             </span>
                                         </td>
@@ -2126,16 +2369,214 @@ const App: React.FC = () => {
         </div>
     );
 
+    const renderBulkHistoryView = () => {
+        const events = activeCompany?.bulkStatusEvents || [];
+        return (
+            <div className="min-h-screen bg-gray-50">
+                {renderHeader()}
+                {renderSidebar()}
+                <main className="max-w-7xl mx-auto p-6">
+                    <div className="flex justify-between items-center mb-6">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-800 tracking-tight">Bulk Modification History</h2>
+                            <p className="text-xs text-gray-500 font-medium">Trace batch status updates and modification events.</p>
+                        </div>
+                        <button onClick={() => updateView('BULK_STATUS_CHANGE')} className="bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-xl shadow-sm hover:bg-gray-50 font-bold transition-all flex items-center gap-2">
+                            &larr; Back to Modify Status
+                        </button>
+                    </div>
+
+                    <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 text-gray-600">
+                                    <tr>
+                                        <th className="p-4 border-b">Event Date & Time</th>
+                                        <th className="p-4 border-b">New Status</th>
+                                        <th className="p-4 border-b">Invoices Affected</th>
+                                        <th className="p-4 border-b">Performed By</th>
+                                        <th className="p-4 border-b">Location</th>
+                                        <th className="p-4 border-b text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {events.map((evt) => (
+                                        <tr key={evt.id} className="hover:bg-gray-50/80 transition-colors">
+                                            <td className="p-4 border-b">
+                                                <div className="font-bold text-gray-900">{new Date(evt.timestamp).toLocaleDateString()}</div>
+                                                <div className="text-[10px] text-gray-400 font-mono">{new Date(evt.timestamp).toLocaleTimeString()}</div>
+                                            </td>
+                                            <td className="p-4 border-b">
+                                                <span className={`px-2 py-0.5 rounded-[4px] text-[9px] uppercase font-black tracking-widest ${getStatusBadgeStyles(evt.status)}`}>
+                                                    {evt.status}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 border-b font-bold text-blue-900">
+                                                {evt.affectedInvoices.length} Shipments
+                                            </td>
+                                            <td className="p-4 border-b text-gray-700 font-medium">{evt.updatedBy}</td>
+                                            <td className="p-4 border-b">
+                                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-none bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100 italic">@{evt.location}</span>
+                                            </td>
+                                            <td className="p-4 border-b text-center">
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedBulkEvent(evt);
+                                                        updateView('BULK_HISTORY_DETAIL');
+                                                    }}
+                                                    className="bg-blue-50 text-blue-600 px-4 py-1.5 rounded-lg border border-blue-100 hover:bg-blue-600 hover:text-white transition-all font-bold text-xs"
+                                                >
+                                                    View Report
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {events.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} className="p-12 text-center text-gray-400 font-medium italic">
+                                                No bulk modification history found.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        );
+    };
+
+    const renderBulkHistoryDetailView = () => {
+        if (!selectedBulkEvent || !activeCompany) return null;
+
+        // Find affected invoices
+        const affected = allNetworkInvoices.filter(inv => selectedBulkEvent.affectedInvoices.includes(inv.invoiceNo));
+
+        return (
+            <div className="min-h-screen bg-gray-100 p-0 md:p-8">
+                {/* Fixed Control Bar (no-print) */}
+                <div className="max-w-4xl mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-4 no-print px-4">
+                    <button onClick={() => updateView('DASHBOARD')} className="bg-white text-gray-700 px-6 py-2.5 rounded-xl shadow-sm border border-gray-200 hover:bg-gray-50 font-bold transition-all flex items-center gap-2">
+                        &larr; Back to Dashboard
+                    </button>
+                    <div className="flex gap-2">
+                        <button onClick={() => updateView('BULK_HISTORY')} className="bg-white text-gray-700 px-6 py-2.5 rounded-xl shadow-sm border border-gray-200 hover:bg-gray-50 font-bold transition-all">
+                            History List
+                        </button>
+                        <button onClick={() => window.print()} className="bg-blue-900 text-white px-8 py-2.5 rounded-xl shadow-lg hover:bg-blue-800 font-black uppercase tracking-widest text-xs transition-all flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                            Print Event report
+                        </button>
+                    </div>
+                </div>
+
+                {/* A4 Report Layout */}
+                <div className="max-w-4xl mx-auto bg-white shadow-2xl p-10 min-h-[1123px] font-sans border border-gray-100">
+                    <div className="flex justify-between items-start border-b-2 border-gray-900 pb-8 mb-10">
+                        <div>
+                            <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tighter">Bulk Status Trace</h1>
+                            <p className="text-gray-500 font-bold uppercase tracking-widest text-xs mt-1">Batch Modification Report</p>
+                        </div>
+                        <div className="text-right">
+                            <h2 className="text-xl font-black text-blue-900 uppercase">{activeCompany.settings.companyName}</h2>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter italic">@{selectedBulkEvent.location}</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-10 bg-gray-50 p-6 rounded-xl border border-gray-100">
+                        <div>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Event ID</p>
+                            <p className="font-mono text-sm font-bold text-blue-900">#{selectedBulkEvent.id.split('_')[1]}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Date & Time</p>
+                            <p className="text-sm font-bold">{new Date(selectedBulkEvent.timestamp).toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Performed By</p>
+                            <p className="text-sm font-bold">{selectedBulkEvent.updatedBy}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">New Status</p>
+                            <span className={`px-2 py-0.5 rounded-[4px] text-[10px] uppercase font-black tracking-widest ${getStatusBadgeStyles(selectedBulkEvent.status)}`}>
+                                {selectedBulkEvent.status}
+                            </span>
+                        </div>
+                    </div>
+
+                    {selectedBulkEvent.remark && (
+                        <div className="mb-10 bg-blue-50/50 p-4 rounded-xl border border-blue-100 relative">
+                            <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest mb-1">Event Remark</p>
+                            <p className="text-sm text-blue-900 font-medium italic italic">"{selectedBulkEvent.remark}"</p>
+                        </div>
+                    )}
+
+                    <div>
+                        <div className="flex justify-between items-center border-b pb-4 mb-4">
+                            <h3 className="font-black text-gray-900 uppercase tracking-tight">Affected Shipments ({affected.length})</h3>
+                        </div>
+                        <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                                <tr className="border-b-2 border-gray-100 text-gray-400 font-black uppercase tracking-widest">
+                                    <th className="py-3 px-2">Invoice No</th>
+                                    <th className="py-3 px-2">Shipper Name</th>
+                                    <th className="py-3 px-2">Consignee</th>
+                                    <th className="py-3 px-2 text-right">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {affected.map((inv) => (
+                                    <tr key={inv.invoiceNo} className="border-b border-gray-50">
+                                        <td className="py-3 px-2 font-mono font-bold text-blue-900">{inv.invoiceNo}</td>
+                                        <td className="py-3 px-2 font-bold text-gray-800 uppercase">{inv.shipper.name}</td>
+                                        <td className="py-3 px-2 text-gray-500">
+                                            {inv.consignee.name}<br />
+                                            <span className="text-[9px] opacity-70 italic">{inv.consignee.country}</span>
+                                        </td>
+                                        <td className="py-3 px-2 text-right font-bold">SAR {inv.financials.netTotal.toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="mt-20 flex justify-between border-t pt-10 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        <p>QovoZ Tracking System - Bulk Trace Audit</p>
+                        <p>Generated: {new Date().toLocaleString()}</p>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const renderFinanceView = () => (
         <div className="min-h-screen bg-gray-50">
             {renderHeader()}
             {renderSidebar()}
             <main className="max-w-7xl mx-auto p-6">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-2xl font-bold text-gray-800">Financial Accounts</h2>
-                    <button onClick={() => setIsAddTransactionOpen(true)} className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 font-bold">
-                        + Add Expense / Revenue
-                    </button>
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-800">Financial Accounts</h2>
+                        <p className="text-xs text-gray-500 font-medium">Bilingual financial reporting and transaction tracking.</p>
+                    </div>
+                    <div className="flex gap-3">
+                        <button onClick={() => exportToExcel('FINANCE')} className="bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-xl shadow-sm hover:bg-gray-50 font-bold transition-all flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Export Excel
+                        </button>
+                        <button onClick={() => window.print()} className="bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-xl shadow-sm hover:bg-gray-50 font-bold transition-all flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                            Print Report
+                        </button>
+                        <button onClick={() => setIsAddTransactionOpen(true)} className="bg-green-600 text-white px-5 py-2.5 rounded-xl shadow-lg hover:bg-green-700 font-bold transition-all transform hover:scale-105">
+                            + New Entry
+                        </button>
+                    </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6 no-print">
+                    {renderFilterBar()}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -2177,14 +2618,19 @@ const App: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {(activeCompany?.financialTransactions || []).slice(0, 50).map((tx) => (
+                                {filteredTransactions.map((tx) => (
                                     <tr key={tx.id} className="border-b hover:bg-gray-50">
                                         <td className="p-4">{tx.date}</td>
                                         <td className="p-4 font-medium">{tx.description}</td>
-                                        <td className="p-4 text-gray-500 text-xs uppercase">
-                                            {(activeCompany?.financialAccounts.find(a => a.id === tx.accountId)?.name) || tx.accountId}
+                                        <td className="p-4">
+                                            <div className="text-[10px] font-bold text-gray-700 uppercase">
+                                                {(relatedCompanies.flatMap(c => c.financialAccounts).find(a => a.id === tx.accountId)?.name) || tx.accountId}
+                                            </div>
+                                            <div className="text-[9px] text-gray-400 font-mono tracking-tighter">
+                                                {relatedCompanies.find(c => c.financialTransactions.some(t => t.id === tx.id))?.settings.location || 'HQ'}
+                                            </div>
                                         </td>
-                                        <td className="p-4"><span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs">{tx.paymentMode || 'CASH'}</span></td>
+                                        <td className="p-4"><span className="bg-gray-100 text-gray-600 border border-gray-200 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest">{tx.paymentMode || 'CASH'}</span></td>
                                         <td className={`p-4 text-right font-bold ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
                                             {tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}
                                         </td>
@@ -2676,15 +3122,17 @@ const App: React.FC = () => {
                                             <p className="text-xs text-gray-400 lowercase italic">User: {hq.username}</p>
                                         </div>
 
-                                        <button
-                                            onClick={() => handleBranchEditClick(hq)}
-                                            className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-100 hover:bg-gray-200 p-2 rounded text-gray-600"
-                                            title="Edit Settings"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                            </svg>
-                                        </button>
+                                        {isHQAdmin && (
+                                            <button
+                                                onClick={() => handleBranchEditClick(hq)}
+                                                className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-100 hover:bg-gray-200 p-2 rounded text-gray-600"
+                                                title="Edit Settings"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                </svg>
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -2721,7 +3169,7 @@ const App: React.FC = () => {
                                                     <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-md text-[10px] font-black uppercase border border-gray-200">Branch</span>
                                                 </div>
 
-                                                {(isHQAdmin || isActive) && (
+                                                {(isHQAdmin || branch.id === activeCompany?.id) && (
                                                     <button
                                                         onClick={() => handleBranchEditClick(branch)}
                                                         className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-100 hover:bg-gray-200 p-2 rounded text-gray-600 shadow-sm"
@@ -2784,6 +3232,14 @@ const App: React.FC = () => {
 
     if (view === 'BULK_STATUS_CHANGE' && activeCompany) {
         return renderBulkStatusChangeView();
+    }
+
+    if (view === 'BULK_HISTORY' && activeCompany) {
+        return renderBulkHistoryView();
+    }
+
+    if (view === 'BULK_HISTORY_DETAIL' && activeCompany) {
+        return renderBulkHistoryDetailView();
     }
 
     if (view === 'DASHBOARD' && activeCompany) {
@@ -2918,6 +3374,10 @@ const App: React.FC = () => {
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                         <h2 className="text-2xl font-bold text-gray-800">Invoices</h2>
                         <div className="flex gap-2 w-full md:w-auto">
+                            <button onClick={() => exportToExcel('INVOICES')} className="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded shadow hover:bg-gray-50 font-bold transition-all flex items-center gap-2">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                Export Excel
+                            </button>
                             <button
                                 onClick={handleCreateInvoice}
                                 className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 justify-center flex-1 md:flex-none"
@@ -3115,6 +3575,24 @@ const App: React.FC = () => {
                         </button>
                     </form>
                 </div>
+            </div>
+        );
+    }
+
+    // Fallback if no specific view matches but we are authenticated
+    if (activeCompany) {
+        return (
+            <div className="min-h-screen bg-gray-50">
+                {renderHeader()}
+                {renderSidebar()}
+                <main className="max-w-7xl mx-auto p-6 text-center py-20">
+                    <div className="text-4xl mb-4">🏠</div>
+                    <h2 className="text-xl font-bold text-gray-800">Returning Home</h2>
+                    <p className="text-gray-500 mt-2">We couldn't restore your previous page, returning you to the dashboard.</p>
+                    <button onClick={() => updateView('DASHBOARD')} className="mt-8 bg-blue-900 text-white px-8 py-3 rounded-xl font-bold">
+                        Go to Dashboard
+                    </button>
+                </main>
             </div>
         );
     }

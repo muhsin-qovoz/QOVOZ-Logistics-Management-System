@@ -1,4 +1,15 @@
 
+
+export interface BulkStatusEvent {
+  id: string;
+  timestamp: string;
+  status: string;
+  affectedInvoices: string[]; // List of invoice numbers
+  updatedBy: string;
+  location: string;
+  remark?: string;
+}
+
 export interface InvoiceItem {
   slNo: number;
   description: string;
@@ -26,6 +37,8 @@ export interface StatusHistoryItem {
   timestamp: string; // ISO string with date and time
   updatedBy?: string;
   remark?: string;
+  location?: string; // Branch location where the update happened
+  action?: string;   // Type of action (e.g., "Updated Status", "Modified Details")
 }
 
 export interface InvoiceData {
@@ -88,7 +101,7 @@ export interface SavedCustomer {
   };
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL' | 'FINANCE' | 'ITEMS' | 'ADMIN_COMPANY_FORM' | 'SHIPMENT_TYPES' | 'BULK_STATUS_CHANGE' | 'APP_SETTINGS';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVOICES' | 'CREATE_INVOICE' | 'PREVIEW_INVOICE' | 'SETTINGS' | 'BRANCH_MANAGEMENT' | 'CUSTOMERS' | 'CUSTOMER_DETAIL' | 'FINANCE' | 'ITEMS' | 'ADMIN_COMPANY_FORM' | 'SHIPMENT_TYPES' | 'BULK_STATUS_CHANGE' | 'BULK_HISTORY' | 'BULK_HISTORY_DETAIL' | 'APP_SETTINGS';
 
 export interface ShipmentType {
   name: string;
@@ -160,8 +173,12 @@ export interface Company {
   financialAccounts: FinancialAccount[];
   financialTransactions: FinancialTransaction[];
 
+
   // Items Module
   items?: ItemMaster[];
+
+  // Bulk Status Trace
+  bulkStatusEvents?: BulkStatusEvent[];
 }
 
 export interface User {
