@@ -3538,7 +3538,7 @@ const App: React.FC = () => {
             <div className="min-h-screen bg-gray-200 flex items-center justify-center p-4">
                 <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-sm">
                     <div className="text-center mb-8">
-                        <h1 className="text-3xl font-black text-blue-900 tracking-tighter uppercase mb-1">Qovoz</h1>
+                        <h1 className="text-3xl font-black text-blue-900 tracking-tighter uppercase mb-1">DEMO</h1>
                         <p className="text-gray-500 text-xs tracking-widest uppercase">Logistics Management System</p>
                     </div>
 
